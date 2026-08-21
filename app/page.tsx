@@ -4,18 +4,29 @@ import { supabase } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 async function getCounts() {
-  const [contacts, properties, owners, companies] = await Promise.all([
-    supabase.from("contacts").select("id", { count: "exact", head: true }),
-    supabase.from("properties").select("id", { count: "exact", head: true }),
-    supabase.from("owners").select("id", { count: "exact", head: true }),
-    supabase.from("companies").select("id", { count: "exact", head: true }),
-  ]);
+  const [contacts, properties, owners, companies, saleComps, leaseComps] =
+    await Promise.all([
+      supabase.from("contacts").select("id", { count: "exact", head: true }),
+      supabase
+        .from("properties")
+        .select("id", { count: "exact", head: true }),
+      supabase.from("owners").select("id", { count: "exact", head: true }),
+      supabase.from("companies").select("id", { count: "exact", head: true }),
+      supabase
+        .from("sale_comps")
+        .select("id", { count: "exact", head: true }),
+      supabase
+        .from("lease_comps")
+        .select("id", { count: "exact", head: true }),
+    ]);
 
   return {
     contacts: contacts.count ?? 0,
     properties: properties.count ?? 0,
     owners: owners.count ?? 0,
     companies: companies.count ?? 0,
+    saleComps: saleComps.count ?? 0,
+    leaseComps: leaseComps.count ?? 0,
   };
 }
 
@@ -25,11 +36,13 @@ export default async function Home() {
   const liveCards = [
     { label: "Contacts", href: "/contacts", count: counts.contacts },
     { label: "Properties", href: "/properties", count: counts.properties },
+    { label: "Owners", href: "/owners", count: counts.owners },
+    { label: "Companies", href: "/companies", count: counts.companies },
   ];
 
   const comingSoon = [
-    { label: "Owners", count: counts.owners },
-    { label: "Companies", count: counts.companies },
+    { label: "Sale Comps", count: counts.saleComps },
+    { label: "Lease Comps", count: counts.leaseComps },
   ];
 
   return (
@@ -63,8 +76,8 @@ export default async function Home() {
       </div>
 
       <p className="text-sm text-gray-400">
-        Next up per the build plan: Owners screen, Companies screen, then
-        Sale/Lease Comps.
+        Next up per the build plan: Sale/Lease Comps, then the Opportunity
+        Engine and map features.
       </p>
     </div>
   );
