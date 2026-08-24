@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("contacts")
-    .select("*, entity:entities(id, display_code, name)")
+    .select("*, entity:entities!entity_id(id, display_code, name)")
     .order("created_at", { ascending: false })
     .limit(limit);
 

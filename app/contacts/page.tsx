@@ -25,7 +25,7 @@ export default async function ContactsPage() {
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select(
-      "id, display_code, first_name, last_name, email, phone, mobile_phone, title, entities(name)"
+      "id, display_code, first_name, last_name, email, phone, mobile_phone, title, entities!entity_id(name)"
     )
     .order("created_at", { ascending: false })
     .returns<ContactRow[]>();
