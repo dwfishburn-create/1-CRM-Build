@@ -18,6 +18,16 @@ export async function createProperty(formData: FormData) {
   const land_acres_raw = String(formData.get("land_acres") || "").trim();
   const notes = String(formData.get("notes") || "").trim() || null;
 
+  // Property/Space model: no parent = the assessor-level building/parcel.
+  // A parent set = this row is a leasable space/suite inside that building,
+  // with its own address and suite number (which are often different from
+  // the parent building's own address).
+  const parent_property_id_raw = String(
+    formData.get("parent_property_id") || ""
+  ).trim();
+  const parent_property_id = parent_property_id_raw || null;
+  const suite_number = String(formData.get("suite_number") || "").trim() || null;
+
   const display_code = await nextDisplayCode("properties", "PROP");
 
   const { error } = await supabase.from("properties").insert({
@@ -30,6 +40,8 @@ export async function createProperty(formData: FormData) {
     submarket,
     building_sf: building_sf_raw ? Number(building_sf_raw) : null,
     land_acres: land_acres_raw ? Number(land_acres_raw) : null,
+    parent_property_id,
+    suite_number,
     notes,
   });
 

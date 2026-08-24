@@ -4,14 +4,13 @@ import { supabase } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 async function getCounts() {
-  const [contacts, properties, owners, companies, saleComps, leaseComps] =
+  const [contacts, properties, entities, saleComps, leaseComps] =
     await Promise.all([
       supabase.from("contacts").select("id", { count: "exact", head: true }),
       supabase
         .from("properties")
         .select("id", { count: "exact", head: true }),
-      supabase.from("owners").select("id", { count: "exact", head: true }),
-      supabase.from("companies").select("id", { count: "exact", head: true }),
+      supabase.from("entities").select("id", { count: "exact", head: true }),
       supabase
         .from("sale_comps")
         .select("id", { count: "exact", head: true }),
@@ -23,8 +22,7 @@ async function getCounts() {
   return {
     contacts: contacts.count ?? 0,
     properties: properties.count ?? 0,
-    owners: owners.count ?? 0,
-    companies: companies.count ?? 0,
+    entities: entities.count ?? 0,
     saleComps: saleComps.count ?? 0,
     leaseComps: leaseComps.count ?? 0,
   };
@@ -36,8 +34,7 @@ export default async function Home() {
   const liveCards = [
     { label: "Contacts", href: "/contacts", count: counts.contacts },
     { label: "Properties", href: "/properties", count: counts.properties },
-    { label: "Owners", href: "/owners", count: counts.owners },
-    { label: "Companies", href: "/companies", count: counts.companies },
+    { label: "Entities", href: "/entities", count: counts.entities },
   ];
 
   const comingSoon = [

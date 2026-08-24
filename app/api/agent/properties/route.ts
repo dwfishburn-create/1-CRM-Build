@@ -21,9 +21,13 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ properties: data });
 }
 
-// POST /api/agent/properties — create a property.
+// POST /api/agent/properties — create a property (or a space within one).
 // Body: { address, city?, state?, zip?, property_type?, submarket?,
-//         building_sf?, land_acres?, notes? }
+//         building_sf?, land_acres?, parent_property_id?, suite_number?,
+//         notes? }
+// parent_property_id: omit/null for a standalone building/parcel; set it to
+// the parent property's id to create a leasable space/suite inside it (its
+// own address + suite_number, distinct from the parent's own address).
 // Mirrors app/properties/actions.ts:createProperty field-for-field.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
@@ -45,6 +49,8 @@ export async function POST(request: NextRequest) {
   const submarket = String(body.submarket || "").trim() || null;
   const building_sf_raw = String(body.building_sf ?? "").trim();
   const land_acres_raw = String(body.land_acres ?? "").trim();
+  const parent_property_id = String(body.parent_property_id || "").trim() || null;
+  const suite_number = String(body.suite_number || "").trim() || null;
   const notes = String(body.notes || "").trim() || null;
 
   const display_code = await nextDisplayCode("properties", "PROP");
@@ -61,6 +67,8 @@ export async function POST(request: NextRequest) {
       submarket,
       building_sf: building_sf_raw ? Number(building_sf_raw) : null,
       land_acres: land_acres_raw ? Number(land_acres_raw) : null,
+      parent_property_id,
+      suite_number,
       notes,
     })
     .select()

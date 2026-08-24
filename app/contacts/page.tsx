@@ -12,10 +12,10 @@ type ContactRow = {
   phone: string | null;
   mobile_phone: string | null;
   title: string | null;
-  companies: { name: string } | { name: string }[] | null;
+  entities: { name: string } | { name: string }[] | null;
 };
 
-function companyName(c: ContactRow["companies"]): string {
+function companyName(c: ContactRow["entities"]): string {
   if (!c) return "—";
   if (Array.isArray(c)) return c[0]?.name ?? "—";
   return c.name ?? "—";
@@ -25,7 +25,7 @@ export default async function ContactsPage() {
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select(
-      "id, display_code, first_name, last_name, email, phone, mobile_phone, title, companies(name)"
+      "id, display_code, first_name, last_name, email, phone, mobile_phone, title, entities(name)"
     )
     .order("created_at", { ascending: false })
     .returns<ContactRow[]>();
@@ -115,7 +115,7 @@ export default async function ContactsPage() {
                 {[c.first_name, c.last_name].filter(Boolean).join(" ") ||
                   "—"}
               </td>
-              <td className="py-2 pr-3">{companyName(c.companies)}</td>
+              <td className="py-2 pr-3">{companyName(c.entities)}</td>
               <td className="py-2 pr-3">{c.title ?? "—"}</td>
               <td className="py-2 pr-3">{c.email ?? "—"}</td>
               <td className="py-2 pr-3">

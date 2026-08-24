@@ -19,26 +19,29 @@ export async function createContact(formData: FormData) {
     throw new Error("First or last name is required.");
   }
 
-  let company_id: string | null = null;
+  // "Company" here means an entity in the unified entities table (which
+  // replaced the old separate owners/companies tables) — a contact's
+  // employer/affiliated business, looked up or created by name.
+  let entity_id: string | null = null;
   if (company_name) {
     const { data: existing, error: lookupError } = await supabase
-      .from("companies")
+      .from("entities")
       .select("id")
       .ilike("name", company_name)
       .maybeSingle();
     if (lookupError) throw new Error(lookupError.message);
 
     if (existing) {
-      company_id = existing.id;
+      entity_id = existing.id;
     } else {
-      const companyCode = await nextDisplayCode("companies", "CO");
-      const { data: newCompany, error: companyError } = await supabase
-        .from("companies")
-        .insert({ name: company_name, display_code: companyCode })
+      const entityCode = await nextDisplayCode("entities", "ENT");
+      const { data: newEntity, error: entityError } = await supabase
+        .from("entities")
+        .insert({ name: company_name, display_code: entityCode })
         .select("id")
         .single();
-      if (companyError) throw new Error(companyError.message);
-      company_id = newCompany.id;
+      if (entityError) throw new Error(entityError.message);
+      entity_id = newEntity.id;
     }
   }
 
@@ -52,7 +55,7 @@ export async function createContact(formData: FormData) {
     phone,
     mobile_phone,
     title,
-    company_id,
+    entity_id,
     notes,
   });
 

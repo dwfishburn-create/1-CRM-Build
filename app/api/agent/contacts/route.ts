@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("contacts")
-    .select("*, company:companies(id, display_code, name)")
+    .select("*, entity:entities(id, display_code, name)")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -49,10 +49,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let company_id: string | null = null;
+  let entity_id: string | null = null;
   if (company_name) {
     const { data: existing, error: lookupError } = await supabase
-      .from("companies")
+      .from("entities")
       .select("id")
       .ilike("name", company_name)
       .maybeSingle();
@@ -61,21 +61,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (existing) {
-      company_id = existing.id;
+      entity_id = existing.id;
     } else {
-      const companyCode = await nextDisplayCode("companies", "CO");
-      const { data: newCompany, error: companyError } = await supabase
-        .from("companies")
-        .insert({ name: company_name, display_code: companyCode })
+      const entityCode = await nextDisplayCode("entities", "ENT");
+      const { data: newEntity, error: entityError } = await supabase
+        .from("entities")
+        .insert({ name: company_name, display_code: entityCode })
         .select("id")
         .single();
-      if (companyError) {
+      if (entityError) {
         return NextResponse.json(
-          { error: companyError.message },
+          { error: entityError.message },
           { status: 500 }
         );
       }
-      company_id = newCompany.id;
+      entity_id = newEntity.id;
     }
   }
 
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       phone,
       mobile_phone,
       title,
-      company_id,
+      entity_id,
       notes,
     })
     .select()

@@ -1,13 +1,15 @@
 import { supabase } from "@/lib/supabase";
-import { createOwner } from "./actions";
+import { createEntity } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-type OwnerRow = {
+type EntityRow = {
   id: string;
   display_code: string | null;
   name: string;
   entity_type: string | null;
+  industry: string | null;
+  website: string | null;
   notes: string | null;
   primary_contact:
     | { first_name: string | null; last_name: string | null }
@@ -21,7 +23,7 @@ type ContactOption = {
   last_name: string | null;
 };
 
-function contactName(c: OwnerRow["primary_contact"]): string {
+function contactName(c: EntityRow["primary_contact"]): string {
   if (!c) return "—";
   const one = Array.isArray(c) ? c[0] : c;
   if (!one) return "—";
@@ -37,15 +39,15 @@ const ENTITY_TYPES = [
   "Other",
 ];
 
-export default async function OwnersPage() {
-  const [{ data: owners, error }, { data: contacts }] = await Promise.all([
+export default async function EntitiesPage() {
+  const [{ data: entities, error }, { data: contacts }] = await Promise.all([
     supabase
-      .from("owners")
+      .from("entities")
       .select(
-        "id, display_code, name, entity_type, notes, primary_contact:contacts!primary_contact_id(first_name, last_name)"
+        "id, display_code, name, entity_type, industry, website, notes, primary_contact:contacts!primary_contact_id(first_name, last_name)"
       )
       .order("created_at", { ascending: false })
-      .returns<OwnerRow[]>(),
+      .returns<EntityRow[]>(),
     supabase
       .from("contacts")
       .select("id, first_name, last_name")
@@ -55,15 +57,20 @@ export default async function OwnersPage() {
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-6">Owners</h1>
+      <h1 className="text-2xl font-semibold mb-1">Entities</h1>
+      <p className="text-gray-500 mb-6 text-sm">
+        Any business, LLC, trust, or individual — owners and tenant companies
+        both live here. Whether one is an owner, a tenant, or both comes from
+        how it links to a property, not from a separate table.
+      </p>
 
       <form
-        action={createOwner}
+        action={createEntity}
         className="grid grid-cols-2 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
       >
         <input
           name="name"
-          placeholder="Owner / entity name"
+          placeholder="Entity / company name"
           required
           className="border border-gray-300 rounded px-3 py-2 col-span-2"
         />
@@ -79,6 +86,16 @@ export default async function OwnersPage() {
             </option>
           ))}
         </select>
+        <input
+          name="industry"
+          placeholder="Industry"
+          className="border border-gray-300 rounded px-3 py-2"
+        />
+        <input
+          name="website"
+          placeholder="Website"
+          className="border border-gray-300 rounded px-3 py-2"
+        />
         <select
           name="primary_contact_id"
           defaultValue=""
@@ -102,13 +119,13 @@ export default async function OwnersPage() {
           type="submit"
           className="col-span-2 bg-black text-white rounded px-4 py-2 justify-self-start"
         >
-          Add owner
+          Add entity
         </button>
       </form>
 
       {error && (
         <p className="text-red-600 mb-4">
-          Error loading owners: {error.message}
+          Error loading entities: {error.message}
         </p>
       )}
 
@@ -118,26 +135,41 @@ export default async function OwnersPage() {
             <th className="py-2 pr-3">Code</th>
             <th className="py-2 pr-3">Name</th>
             <th className="py-2 pr-3">Type</th>
+            <th className="py-2 pr-3">Industry</th>
+            <th className="py-2 pr-3">Website</th>
             <th className="py-2 pr-3">Primary Contact</th>
-            <th className="py-2 pr-3">Notes</th>
           </tr>
         </thead>
         <tbody>
-          {owners?.map((o) => (
-            <tr key={o.id} className="border-b border-gray-100">
+          {entities?.map((e) => (
+            <tr key={e.id} className="border-b border-gray-100">
               <td className="py-2 pr-3 text-gray-500">
-                {o.display_code ?? "—"}
+                {e.display_code ?? "—"}
               </td>
-              <td className="py-2 pr-3">{o.name}</td>
-              <td className="py-2 pr-3">{o.entity_type ?? "—"}</td>
-              <td className="py-2 pr-3">{contactName(o.primary_contact)}</td>
-              <td className="py-2 pr-3">{o.notes ?? "—"}</td>
+              <td className="py-2 pr-3">{e.name}</td>
+              <td className="py-2 pr-3">{e.entity_type ?? "—"}</td>
+              <td className="py-2 pr-3">{e.industry ?? "—"}</td>
+              <td className="py-2 pr-3">
+                {e.website ? (
+                  <a
+                    href={e.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline"
+                  >
+                    {e.website}
+                  </a>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="py-2 pr-3">{contactName(e.primary_contact)}</td>
             </tr>
           ))}
-          {owners?.length === 0 && (
+          {entities?.length === 0 && (
             <tr>
-              <td colSpan={5} className="py-4 text-gray-400">
-                No owners yet.
+              <td colSpan={6} className="py-4 text-gray-400">
+                No entities yet.
               </td>
             </tr>
           )}

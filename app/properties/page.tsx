@@ -14,6 +14,15 @@ type PropertyRow = {
   building_sf: number | null;
   land_acres: number | null;
   research_status: string | null;
+  suite_number: string | null;
+  parent_property_id: string | null;
+  parent: { display_code: string | null; address: string } | { display_code: string | null; address: string }[] | null;
+};
+
+type ParentOption = {
+  id: string;
+  display_code: string | null;
+  address: string;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -22,14 +31,30 @@ const STATUS_STYLES: Record<string, string> = {
   confirmed: "bg-green-100 text-green-700",
 };
 
+function parentLabel(p: PropertyRow["parent"]): string {
+  if (!p) return "—";
+  const one = Array.isArray(p) ? p[0] : p;
+  if (!one) return "—";
+  return `${one.display_code ?? "—"} · ${one.address}`;
+}
+
 export default async function PropertiesPage() {
-  const { data: properties, error } = await supabase
-    .from("properties")
-    .select(
-      "id, display_code, address, city, state, zip, property_type, building_sf, land_acres, research_status"
-    )
-    .order("created_at", { ascending: false })
-    .returns<PropertyRow[]>();
+  const [{ data: properties, error }, { data: parentOptions }] =
+    await Promise.all([
+      supabase
+        .from("properties")
+        .select(
+          "id, display_code, address, city, state, zip, property_type, building_sf, land_acres, research_status, suite_number, parent_property_id, parent:properties!parent_property_id(display_code, address)"
+        )
+        .order("created_at", { ascending: false })
+        .returns<PropertyRow[]>(),
+      supabase
+        .from("properties")
+        .select("id, display_code, address")
+        .is("parent_property_id", null)
+        .order("address", { ascending: true })
+        .returns<ParentOption[]>(),
+    ]);
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -71,6 +96,23 @@ export default async function PropertiesPage() {
           placeholder="Submarket"
           className="border border-gray-300 rounded px-3 py-2"
         />
+        <select
+          name="parent_property_id"
+          defaultValue=""
+          className="border border-gray-300 rounded px-3 py-2"
+        >
+          <option value="">Standalone property (not a space)</option>
+          {parentOptions?.map((p) => (
+            <option key={p.id} value={p.id}>
+              Space inside: {p.display_code ?? "—"} · {p.address}
+            </option>
+          ))}
+        </select>
+        <input
+          name="suite_number"
+          placeholder="Suite / unit number (if a space)"
+          className="border border-gray-300 rounded px-3 py-2"
+        />
         <input
           name="building_sf"
           type="number"
@@ -109,6 +151,7 @@ export default async function PropertiesPage() {
           <tr className="text-left border-b border-gray-300">
             <th className="py-2 pr-3">Code</th>
             <th className="py-2 pr-3">Address</th>
+            <th className="py-2 pr-3">Space of</th>
             <th className="py-2 pr-3">Type</th>
             <th className="py-2 pr-3">Building SF</th>
             <th className="py-2 pr-3">Land Acres</th>
@@ -123,8 +166,12 @@ export default async function PropertiesPage() {
               </td>
               <td className="py-2 pr-3">
                 {p.address}
+                {p.suite_number ? ` #${p.suite_number}` : ""}
                 {p.city ? `, ${p.city}` : ""}
                 {p.state ? `, ${p.state}` : ""} {p.zip ?? ""}
+              </td>
+              <td className="py-2 pr-3 text-gray-500">
+                {p.parent_property_id ? parentLabel(p.parent) : "—"}
               </td>
               <td className="py-2 pr-3">{p.property_type ?? "—"}</td>
               <td className="py-2 pr-3">
@@ -144,7 +191,7 @@ export default async function PropertiesPage() {
           ))}
           {properties?.length === 0 && (
             <tr>
-              <td colSpan={6} className="py-4 text-gray-400">
+              <td colSpan={7} className="py-4 text-gray-400">
                 No properties yet.
               </td>
             </tr>

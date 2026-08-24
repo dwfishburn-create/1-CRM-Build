@@ -3,13 +3,14 @@ import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
 
-// GET /api/agent/owners?limit=50 — list owners/entities, most recent first.
+// GET /api/agent/entities?limit=50 — list entities, most recent first.
+// Entities replaces the old separate Owners + Companies tables.
 export async function GET(request: NextRequest) {
   const limitParam = request.nextUrl.searchParams.get("limit");
   const limit = limitParam ? Math.min(Number(limitParam) || 50, 200) : 50;
 
   const { data, error } = await supabase
-    .from("owners")
+    .from("entities")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -18,12 +19,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ owners: data });
+  return NextResponse.json({ entities: data });
 }
 
-// POST /api/agent/owners — create an owner/entity.
-// Body: { name, entity_type?, primary_contact_id?, notes? }
-// Mirrors app/owners/actions.ts:createOwner field-for-field.
+// POST /api/agent/entities — create an entity.
+// Body: { name, entity_type?, industry?, website?, primary_contact_id?, notes? }
+// Mirrors app/entities/actions.ts:createEntity field-for-field.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -34,25 +35,25 @@ export async function POST(request: NextRequest) {
 
   const name = String(body.name || "").trim();
   if (!name) {
-    return NextResponse.json(
-      { error: "Owner / entity name is required." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Entity name is required." }, { status: 400 });
   }
 
   const entity_type = String(body.entity_type || "").trim() || null;
-  const primary_contact_id_raw = String(body.primary_contact_id || "").trim();
-  const primary_contact_id = primary_contact_id_raw || null;
+  const industry = String(body.industry || "").trim() || null;
+  const website = String(body.website || "").trim() || null;
+  const primary_contact_id = String(body.primary_contact_id || "").trim() || null;
   const notes = String(body.notes || "").trim() || null;
 
-  const display_code = await nextDisplayCode("owners", "OWN");
+  const display_code = await nextDisplayCode("entities", "ENT");
 
   const { data, error } = await supabase
-    .from("owners")
+    .from("entities")
     .insert({
       display_code,
       name,
       entity_type,
+      industry,
+      website,
       primary_contact_id,
       notes,
     })
@@ -63,5 +64,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ owner: data }, { status: 201 });
+  return NextResponse.json({ entity: data }, { status: 201 });
 }
