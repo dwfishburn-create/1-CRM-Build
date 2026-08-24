@@ -4,13 +4,14 @@ import { supabase } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 async function getCounts() {
-  const [contacts, properties, entities, saleComps, leaseComps] =
+  const [contacts, properties, entities, projects, saleComps, leaseComps] =
     await Promise.all([
       supabase.from("contacts").select("id", { count: "exact", head: true }),
       supabase
         .from("properties")
         .select("id", { count: "exact", head: true }),
       supabase.from("entities").select("id", { count: "exact", head: true }),
+      supabase.from("projects").select("id", { count: "exact", head: true }),
       supabase
         .from("sale_comps")
         .select("id", { count: "exact", head: true }),
@@ -23,6 +24,7 @@ async function getCounts() {
     contacts: contacts.count ?? 0,
     properties: properties.count ?? 0,
     entities: entities.count ?? 0,
+    projects: projects.count ?? 0,
     saleComps: saleComps.count ?? 0,
     leaseComps: leaseComps.count ?? 0,
   };
@@ -35,6 +37,7 @@ export default async function Home() {
     { label: "Contacts", href: "/contacts", count: counts.contacts },
     { label: "Properties", href: "/properties", count: counts.properties },
     { label: "Entities", href: "/entities", count: counts.entities },
+    { label: "Projects", href: "/projects", count: counts.projects },
   ];
 
   const comingSoon = [
