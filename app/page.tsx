@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 async function getCounts() {
-  const [contacts, properties, entities, projects, saleComps, leaseComps] =
+  const [contacts, properties, entities, projects, requirements, saleComps, leaseComps] =
     await Promise.all([
       supabase.from("contacts").select("id", { count: "exact", head: true }),
       supabase
@@ -12,6 +12,9 @@ async function getCounts() {
         .select("id", { count: "exact", head: true }),
       supabase.from("entities").select("id", { count: "exact", head: true }),
       supabase.from("projects").select("id", { count: "exact", head: true }),
+      supabase
+        .from("requirements")
+        .select("id", { count: "exact", head: true }),
       supabase
         .from("sale_comps")
         .select("id", { count: "exact", head: true }),
@@ -25,6 +28,7 @@ async function getCounts() {
     properties: properties.count ?? 0,
     entities: entities.count ?? 0,
     projects: projects.count ?? 0,
+    requirements: requirements.count ?? 0,
     saleComps: saleComps.count ?? 0,
     leaseComps: leaseComps.count ?? 0,
   };
@@ -38,6 +42,7 @@ export default async function Home() {
     { label: "Properties", href: "/properties", count: counts.properties },
     { label: "Entities", href: "/entities", count: counts.entities },
     { label: "Projects", href: "/projects", count: counts.projects },
+    { label: "Requirements", href: "/requirements", count: counts.requirements },
   ];
 
   const comingSoon = [
@@ -76,8 +81,9 @@ export default async function Home() {
       </div>
 
       <p className="text-sm text-gray-400">
-        Next up per the build plan: Sale/Lease Comps, then the Opportunity
-        Engine and map features.
+        Next up per the build plan: Tasks + Dashboard, then Sale/Lease Comps
+        as live deals need them, then the Opportunity Engine and map
+        features.
       </p>
     </div>
   );
