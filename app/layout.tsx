@@ -29,6 +29,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Link href="/" className="font-semibold">
             Dan Fishburn CRM
           </Link>
+          <Link href="/dashboard" className="text-gray-600 hover:text-black">
+            Dashboard
+          </Link>
           <Link href="/contacts" className="text-gray-600 hover:text-black">
             Contacts
           </Link>
@@ -43,6 +46,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </Link>
           <Link href="/requirements" className="text-gray-600 hover:text-black">
             Requirements
+          </Link>
+          <Link href="/tasks" className="text-gray-600 hover:text-black">
+            Tasks
           </Link>
         </nav>
         <main className="flex-1">{children}</main>
