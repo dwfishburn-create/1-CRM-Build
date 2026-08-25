@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 type NamedContact = { id: string; first_name: string | null; last_name: string | null };
 type NamedEntity = { id: string; name: string };
 type NamedProperty = { id: string; display_code: string | null; address: string };
-type NamedProject = { id: string; display_code: string | null; project_code: string; client_name: string };
+type NamedProject = { id: string; project_code: string; client_name: string };
 type NamedRequirement = { id: string; display_code: string | null; deal_type: string | null };
 
 type TaskRow = {
@@ -55,7 +55,7 @@ function linkedToLabel(t: TaskRow): { label: string; href: string } | null {
   const project = one(t.project);
   if (project) {
     return {
-      label: `Project — ${project.display_code ?? project.project_code}`,
+      label: `Project — ${project.project_code}`,
       href: `/projects/${project.id}`,
     };
   }
@@ -93,7 +93,7 @@ export default async function TasksPage() {
     supabase
       .from("tasks")
       .select(
-        "id, display_code, description, due_date, status, category, recurrence_unit, recurrence_interval, waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name), contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, name), property:properties!property_id(id, display_code, address), project:projects!project_id(id, display_code, project_code, client_name), requirement:requirements!requirement_id(id, display_code, deal_type)"
+        "id, display_code, description, due_date, status, category, recurrence_unit, recurrence_interval, waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name), contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, name), property:properties!property_id(id, display_code, address), project:projects!project_id(id, project_code, client_name), requirement:requirements!requirement_id(id, display_code, deal_type)"
       )
       .order("status", { ascending: true })
       .order("due_date", { ascending: true, nullsFirst: false })
@@ -112,7 +112,7 @@ export default async function TasksPage() {
       .returns<NamedProperty[]>(),
     supabase
       .from("projects")
-      .select("id, display_code, project_code, client_name")
+      .select("id, project_code, client_name")
       .order("created_at", { ascending: false })
       .returns<NamedProject[]>(),
     supabase
@@ -211,7 +211,7 @@ export default async function TasksPage() {
           <option value="">No project link</option>
           {(projects ?? []).map((p) => (
             <option key={p.id} value={p.id}>
-              {p.display_code ?? p.project_code} — {p.client_name}
+              {p.project_code} — {p.client_name}
             </option>
           ))}
         </select>
