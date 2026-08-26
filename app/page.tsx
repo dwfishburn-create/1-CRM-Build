@@ -49,11 +49,8 @@ export default async function Home() {
     { label: "Projects", href: "/projects", count: counts.projects },
     { label: "Requirements", href: "/requirements", count: counts.requirements },
     { label: "Open Tasks", href: "/dashboard", count: counts.openTasks },
-  ];
-
-  const comingSoon = [
-    { label: "Sale Comps", count: counts.saleComps },
-    { label: "Lease Comps", count: counts.leaseComps },
+    { label: "Sale Comps", href: "/sale-comps", count: counts.saleComps },
+    { label: "Lease Comps", href: "/lease-comps", count: counts.leaseComps },
   ];
 
   return (
@@ -74,21 +71,11 @@ export default async function Home() {
             <div className="text-gray-500">{c.label}</div>
           </Link>
         ))}
-        {comingSoon.map((c) => (
-          <div
-            key={c.label}
-            className="border border-dashed border-gray-200 rounded-lg p-4 text-gray-400"
-          >
-            <div className="text-3xl font-semibold">{c.count}</div>
-            <div>{c.label}</div>
-            <div className="text-xs mt-1">coming soon</div>
-          </div>
-        ))}
       </div>
 
       <p className="text-sm text-gray-400">
-        Next up per the build plan: Sale/Lease Comps as live deals need them,
-        then the Opportunity Engine and map features.
+        Next up per the build plan: the Opportunity Engine, then map
+        features.
       </p>
     </div>
   );

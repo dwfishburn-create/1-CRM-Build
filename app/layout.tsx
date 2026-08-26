@@ -50,6 +50,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Link href="/tasks" className="text-gray-600 hover:text-black">
             Tasks
           </Link>
+          <Link href="/sale-comps" className="text-gray-600 hover:text-black">
+            Sale Comps
+          </Link>
+          <Link href="/lease-comps" className="text-gray-600 hover:text-black">
+            Lease Comps
+          </Link>
         </nav>
         <main className="flex-1">{children}</main>
       </body>
