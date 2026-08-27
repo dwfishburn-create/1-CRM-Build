@@ -13,15 +13,17 @@
 // The MCP route's own callers (Claude connectors) authenticate separately,
 // with their own MCP_API_TOKEN, checked in app/api/[transport]/route.ts.
 
-const FALLBACK_BASE_URL = "https://1-crm-build.vercel.app";
+// Always call the stable production domain, never the per-deployment
+// VERCEL_URL host. VERCEL_URL points at that specific deployment's own
+// unique hostname, which sits behind Vercel's deployment-protection wall
+// (an HTML interstitial, not JSON) unless that protection is disabled for
+// this project — so a server-to-server call to it can silently come back
+// as a 200 OK HTML page instead of the expected JSON. Found 8/27/2026 when
+// the MCP route's first live tool call failed with "non-JSON response".
+const BASE_URL = "https://1-crm-build.vercel.app";
 
 function baseUrl(): string {
-  // VERCEL_URL is set automatically by the Vercel runtime to this
-  // deployment's own hostname (no protocol, no trailing slash).
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`;
-  }
-  return FALLBACK_BASE_URL;
+  return BASE_URL;
 }
 
 export type AgentApiResult = {
