@@ -33,7 +33,7 @@ export type AgentApiResult = {
 };
 
 async function agentApiRequest(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH",
   path: string,
   init?: { query?: Record<string, string | undefined>; json?: Record<string, unknown> }
 ): Promise<AgentApiResult> {
@@ -81,4 +81,8 @@ export function agentApiGet(path: string, query?: Record<string, string | undefi
 
 export function agentApiPost(path: string, json: Record<string, unknown>) {
   return agentApiRequest("POST", path, { json });
+}
+
+export function agentApiPatch(path: string, json: Record<string, unknown>) {
+  return agentApiRequest("PATCH", path, { json });
 }

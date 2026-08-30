@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
+import { geocodeAddress } from "@/lib/geocode";
 
 export async function createProperty(formData: FormData) {
   const address = String(formData.get("address") || "").trim();
@@ -30,6 +31,11 @@ export async function createProperty(formData: FormData) {
 
   const display_code = await nextDisplayCode("properties", "PROP");
 
+  // Best-effort geocode, same as the Agent API's POST /api/agent/properties
+  // — a miss (bad address, API hiccup) just leaves both columns null, it
+  // never blocks the property from being created.
+  const geocoded = await geocodeAddress({ address, city, state, zip });
+
   const { error } = await supabase.from("properties").insert({
     display_code,
     address,
@@ -42,6 +48,8 @@ export async function createProperty(formData: FormData) {
     land_acres: land_acres_raw ? Number(land_acres_raw) : null,
     parent_property_id,
     suite_number,
+    latitude: geocoded?.latitude ?? null,
+    longitude: geocoded?.longitude ?? null,
     notes,
   });
 

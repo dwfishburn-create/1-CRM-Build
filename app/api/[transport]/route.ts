@@ -1,7 +1,7 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { agentApiGet, agentApiPost, type AgentApiResult } from "@/lib/agentApiClient";
+import { agentApiGet, agentApiPost, agentApiPatch, type AgentApiResult } from "@/lib/agentApiClient";
 
 // MCP connector for the CRM's Agent API — added 8/27/2026 (see
 // CRM_Requirements_and_Decisions_Log.md, "standing MCP connector" entry).
@@ -127,7 +127,9 @@ const handler = createMcpHandler(
         title: "Create property",
         description:
           "Create a property, or a leasable space/suite inside one (set parent_property_id). " +
-          "market_status/research_status: omit to use the DB default (off_market/unresearched).",
+          "market_status/research_status: omit to use the DB default (off_market/unresearched). " +
+          "latitude/longitude: omit to auto-geocode the address (best-effort — a miss leaves " +
+          "both null, it never blocks the create); pass explicit values to skip geocoding.",
         inputSchema: {
           address: z.string().min(1),
           city: z.string().optional(),
@@ -141,10 +143,31 @@ const handler = createMcpHandler(
           suite_number: z.string().optional(),
           market_status: z.enum(["on_market", "off_market"]).optional(),
           research_status: z.string().optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
           notes: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("properties", args))
+    );
+    server.registerTool(
+      "geocode_property",
+      {
+        title: "Geocode property",
+        description:
+          "Backfill or correct a property's latitude/longitude. Pass action:\"geocode\" to look " +
+          "up that property's own address and (re)geocode it — the backfill path: list_properties, " +
+          "find rows where latitude/longitude are null, and call this for each by id, no need to " +
+          "already know the address. Or pass explicit latitude/longitude to set coordinates " +
+          "directly (a manual correction).",
+        inputSchema: {
+          id: z.string().min(1),
+          action: z.literal("geocode").optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("properties", args))
     );
 
     // --- projects ---

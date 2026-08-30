@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
+import { geocodeAddress } from "@/lib/geocode";
 
 // GET /api/agent/properties?limit=50 — list properties, most recent first.
 export async function GET(request: NextRequest) {
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
 // Body: { address, city?, state?, zip?, county?, parcel_number?,
 //         property_type?, submarket?, building_sf?, land_acres?,
 //         year_built?, parent_property_id?, suite_number?, market_status?,
-//         research_status?, notes? }
+//         research_status?, latitude?, longitude?, notes? }
 // parent_property_id: omit/null for a standalone building/parcel; set it to
 // the parent property's id to create a leasable space/suite inside it (its
 // own address + suite_number, distinct from the parent's own address).
@@ -33,8 +34,13 @@ export async function GET(request: NextRequest) {
 // default (market_status -> off_market, research_status -> unresearched).
 // An invalid value is rejected by the DB's own check constraint rather than
 // validated here.
+// latitude/longitude: omit to geocode the address automatically (best-effort
+// — see lib/geocode.ts; a miss just leaves both null, it never blocks the
+// create). Pass explicit values to skip geocoding (e.g. a space/suite that
+// should inherit its parent's coordinates, or a hand-corrected pin).
 // Mirrors app/properties/actions.ts:createProperty field-for-field, plus
-// market_status/research_status which that form doesn't expose yet.
+// market_status/research_status/latitude/longitude which that form doesn't
+// expose yet.
 //
 // Bug fixed 8/26/2026: previously this route never read market_status (or
 // research_status) from the body at all, so any value a caller sent was
@@ -77,6 +83,24 @@ export async function POST(request: NextRequest) {
   const research_status = String(body.research_status || "").trim();
   const notes = String(body.notes || "").trim() || null;
 
+  // latitude/longitude: an explicit caller-supplied value always wins over
+  // auto-geocoding.
+  let latitude: number | null =
+    typeof body.latitude === "number" ? body.latitude : null;
+  let longitude: number | null =
+    typeof body.longitude === "number" ? body.longitude : null;
+
+  if (latitude === null && longitude === null) {
+    // Best-effort — a geocoding miss (bad address, API hiccup, timeout)
+    // never blocks the property create. It just leaves both columns null,
+    // same as every property created before this code existed.
+    const geocoded = await geocodeAddress({ address, city, state, zip });
+    if (geocoded) {
+      latitude = geocoded.latitude;
+      longitude = geocoded.longitude;
+    }
+  }
+
   const display_code = await nextDisplayCode("properties", "PROP");
 
   const insertPayload: Record<string, unknown> = {
@@ -94,6 +118,8 @@ export async function POST(request: NextRequest) {
     year_built: year_built_raw ? Number(year_built_raw) : null,
     parent_property_id,
     suite_number,
+    latitude,
+    longitude,
     notes,
   };
   // Only set these keys when the caller actually provided a value, so an
@@ -113,4 +139,84 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ property: data }, { status: 201 });
+}
+
+// PATCH /api/agent/properties — update a property's coordinates. Body:
+// { id, action: "geocode" } looks up the property's own address/city/
+// state/zip and (re)geocodes it — this is the backfill path: a session can
+// list_properties, find rows with latitude/longitude null, and PATCH each
+// one by id without needing to already know its address. Or
+// { id, latitude, longitude } sets coordinates directly (a manual
+// correction, or a value from some other source). Deliberately narrow —
+// same pattern as the tasks PATCH endpoint — anything beyond coordinates
+// goes through the web UI or SQL editor.
+export async function PATCH(request: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const id = String(body.id || "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "id is required." }, { status: 400 });
+  }
+
+  const action = String(body.action || "").trim();
+
+  let latitude: number;
+  let longitude: number;
+
+  if (action === "geocode") {
+    const { data: existing, error: fetchError } = await supabase
+      .from("properties")
+      .select("address, city, state, zip")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !existing) {
+      return NextResponse.json(
+        { error: fetchError?.message || "Property not found." },
+        { status: 404 }
+      );
+    }
+
+    const geocoded = await geocodeAddress(existing);
+    if (!geocoded) {
+      return NextResponse.json(
+        { error: "No geocode match for this property's address.", geocoded: false },
+        { status: 200 }
+      );
+    }
+    latitude = geocoded.latitude;
+    longitude = geocoded.longitude;
+  } else if (
+    typeof body.latitude === "number" &&
+    typeof body.longitude === "number"
+  ) {
+    latitude = body.latitude;
+    longitude = body.longitude;
+  } else {
+    return NextResponse.json(
+      {
+        error:
+          'Provide either { action: "geocode" } or numeric { latitude, longitude }.',
+      },
+      { status: 400 }
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("properties")
+    .update({ latitude, longitude })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ property: data, geocoded: true });
 }
