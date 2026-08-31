@@ -28,6 +28,11 @@ import { agentApiGet, agentApiPost, agentApiPatch, type AgentApiResult } from "@
 // step from. requirements/tasks/sale-comps/lease-comps/requirement-parties
 // are not yet wrapped; add them here the same way, if/when a session needs
 // to write to them without a pasted token.
+//
+// contact_entities added 8/31/2026 (migration 009) — a contact<->entity
+// many-to-many link, for when one person is a principal of more than one
+// company. See the "Contact<->Entity relationship is 1:1" decision in
+// CRM_Requirements_and_Decisions_Log.md.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -108,6 +113,51 @@ const handler = createMcpHandler(
         },
       },
       async (args) => toolResult(await agentApiPost("contacts", args))
+    );
+
+    // --- contact_entities links ---
+    server.registerTool(
+      "list_contact_entities",
+      {
+        title: "List contact entity links",
+        description:
+          "List a contact's entity affiliations BEYOND their primary one (contacts.entity_id) — " +
+          "e.g. a person who is a principal of more than one company. Optionally filter to one " +
+          "contact or one entity.",
+        inputSchema: {
+          ...limitArg,
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+        },
+      },
+      async ({ limit, contact_id, entity_id }) =>
+        toolResult(
+          await agentApiGet("contact-entities", {
+            limit: limit?.toString(),
+            contact_id,
+            entity_id,
+          })
+        )
+    );
+    server.registerTool(
+      "link_contact_entity",
+      {
+        title: "Link contact to an additional entity",
+        description:
+          "Link a contact to an ADDITIONAL entity beyond their primary one (contacts.entity_id) " +
+          "— use this when someone is a principal/owner/officer of more than one company (e.g. " +
+          "the same person runs two separate businesses). Do not create a duplicate contact " +
+          "record for the second affiliation — reuse the existing contact_id. Calling again with " +
+          "the same contact_id+entity_id updates that link's role/notes instead of creating a " +
+          "duplicate.",
+        inputSchema: {
+          contact_id: z.string().min(1),
+          entity_id: z.string().min(1),
+          role: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("contact-entities", args))
     );
 
     // --- properties ---
