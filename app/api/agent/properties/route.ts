@@ -54,6 +54,10 @@ export async function GET(request: NextRequest) {
 // sending year_built: 1963 got a 201 back with the value silently dropped
 // (year_built: null), discovered while entering CL-4930 L St. See
 // CRM_Requirements_and_Decisions_Log.md.
+//
+// priority added 8/30/2026 alongside the roadmap item 7 (map/polygon
+// tool) build — freeform text, no DB enum, same convention as
+// project_contacts.role / reference_links.link_type.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -81,6 +85,7 @@ export async function POST(request: NextRequest) {
   const suite_number = String(body.suite_number || "").trim() || null;
   const market_status = String(body.market_status || "").trim();
   const research_status = String(body.research_status || "").trim();
+  const priority = String(body.priority || "").trim() || null;
   const notes = String(body.notes || "").trim() || null;
 
   // latitude/longitude: an explicit caller-supplied value always wins over
@@ -120,6 +125,7 @@ export async function POST(request: NextRequest) {
     suite_number,
     latitude,
     longitude,
+    priority,
     notes,
   };
   // Only set these keys when the caller actually provided a value, so an

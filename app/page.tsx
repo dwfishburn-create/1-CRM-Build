@@ -73,9 +73,19 @@ export default async function Home() {
         ))}
       </div>
 
+      <Link
+        href="/map"
+        className="block border border-gray-200 rounded-lg p-4 hover:border-gray-400 transition mb-6"
+      >
+        <div className="font-medium">Map / Territories →</div>
+        <div className="text-gray-500 text-sm">
+          Research-status markers, draw a polygon to pull properties inside
+          it, save reusable research zones.
+        </div>
+      </Link>
+
       <p className="text-sm text-gray-400">
-        Next up per the build plan: the Opportunity Engine, then map
-        features.
+        Next up per the build plan: the Opportunity Engine.
       </p>
     </div>
   );

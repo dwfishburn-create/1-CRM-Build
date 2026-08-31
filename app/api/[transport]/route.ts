@@ -145,6 +145,7 @@ const handler = createMcpHandler(
           research_status: z.string().optional(),
           latitude: z.number().optional(),
           longitude: z.number().optional(),
+          priority: z.string().optional(),
           notes: z.string().optional(),
         },
       },
@@ -343,6 +344,126 @@ const handler = createMcpHandler(
         },
       },
       async (args) => toolResult(await agentApiPost("activity-log", args))
+    );
+
+    // --- project_contacts links ---
+    server.registerTool(
+      "list_project_contacts",
+      {
+        title: "List project contact links",
+        description:
+          "List contacts linked to projects, most recently created first. Optionally filter to " +
+          "one project.",
+        inputSchema: { ...limitArg, project_id: z.string().optional() },
+      },
+      async ({ limit, project_id }) =>
+        toolResult(
+          await agentApiGet("project-contacts", { limit: limit?.toString(), project_id })
+        )
+    );
+    server.registerTool(
+      "link_project_contact",
+      {
+        title: "Link project contact",
+        description:
+          "Link a contact and/or entity to a project (e.g. a co-broker, referral source, outside " +
+          "brokerage, or other party on the deal). At least one of contact_id/entity_id is " +
+          "required. For a commission-split collaborator, set split_pct — meaning depends on " +
+          "role: a referral fee is typically 10-20% off the top of the gross commission before " +
+          "any split, while a co-broker split (50/50 or 60/40 typical) divides what's left after " +
+          "any referral. Calling again with the same project_id+contact_id (or " +
+          "project_id+entity_id) updates that link's role/split_pct/notes instead of creating a " +
+          "duplicate.",
+        inputSchema: {
+          project_id: z.string().min(1),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          role: z.string().optional(),
+          split_pct: z.number().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("project-contacts", args))
+    );
+
+    // --- reference_links ---
+    server.registerTool(
+      "list_reference_links",
+      {
+        title: "List reference links",
+        description:
+          "List reference links (standing deal-terms answers, shareable marketing-package/due-" +
+          "diligence links), most recently created first. Optionally filter by property or project.",
+        inputSchema: {
+          ...limitArg,
+          property_id: z.string().optional(),
+          project_id: z.string().optional(),
+        },
+      },
+      async ({ limit, property_id, project_id }) =>
+        toolResult(
+          await agentApiGet("reference-links", {
+            limit: limit?.toString(),
+            property_id,
+            project_id,
+          })
+        )
+    );
+    server.registerTool(
+      "create_reference_link",
+      {
+        title: "Create reference link",
+        description:
+          "Log a structured reference link or standing answer (e.g. a Dropbox marketing-package " +
+          "link, or a standing NNN/CAM/tax figure) instead of an activity_log note. At least one " +
+          "of property_id/project_id is required; url is optional (a text-only standing answer " +
+          "can be logged via notes alone).",
+        inputSchema: {
+          label: z.string().min(1),
+          property_id: z.string().optional(),
+          project_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          url: z.string().optional(),
+          link_type: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("reference-links", args))
+    );
+
+    // --- saved_polygons (territories) ---
+    server.registerTool(
+      "list_territories",
+      {
+        title: "List territories",
+        description:
+          "List saved polygons (\"research zones\" / \"campaign territories\" drawn on the map's " +
+          "polygon tool), most recently created first. Optionally filter to one project.",
+        inputSchema: { ...limitArg, project_id: z.string().optional() },
+      },
+      async ({ limit, project_id }) =>
+        toolResult(await agentApiGet("territories", { limit: limit?.toString(), project_id }))
+    );
+    server.registerTool(
+      "save_territory",
+      {
+        title: "Save territory",
+        description:
+          "Save a polygon as a reusable research zone / campaign territory. geojson must be a " +
+          "Polygon geometry, e.g. {\"type\":\"Polygon\",\"coordinates\":[[[lng,lat],...]]}, first " +
+          "and last point equal to close the ring. Which properties fall inside it is always " +
+          "computed live when the zone is reloaded, never stored here.",
+        inputSchema: {
+          name: z.string().min(1),
+          geojson: z.object({
+            type: z.literal("Polygon"),
+            coordinates: z.array(z.array(z.tuple([z.number(), z.number()]))),
+          }),
+          project_id: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("territories", args))
     );
   },
   {

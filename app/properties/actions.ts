@@ -17,6 +17,7 @@ export async function createProperty(formData: FormData) {
   const submarket = String(formData.get("submarket") || "").trim() || null;
   const building_sf_raw = String(formData.get("building_sf") || "").trim();
   const land_acres_raw = String(formData.get("land_acres") || "").trim();
+  const priority = String(formData.get("priority") || "").trim() || null;
   const notes = String(formData.get("notes") || "").trim() || null;
 
   // Property/Space model: no parent = the assessor-level building/parcel.
@@ -50,6 +51,7 @@ export async function createProperty(formData: FormData) {
     suite_number,
     latitude: geocoded?.latitude ?? null,
     longitude: geocoded?.longitude ?? null,
+    priority,
     notes,
   });
 

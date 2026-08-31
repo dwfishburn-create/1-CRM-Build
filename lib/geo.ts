@@ -3,6 +3,9 @@
 // 8/30/2026 decision in CRM_Requirements_and_Decisions_Log.md: radius now,
 // full polygon-drawing UI later as roadmap item 7) and, eventually, that
 // polygon tool itself.
+//
+// pointInPolygon (below) is that polygon tool's membership check — added
+// 8/30/2026 alongside the roadmap item 7 build.
 
 const EARTH_RADIUS_MILES = 3958.8;
 
@@ -45,5 +48,48 @@ export function withinRadius<T extends { latitude: number | null; longitude: num
       haversineMiles(center, { latitude: row.latitude, longitude: row.longitude }) <=
       radiusMiles
     );
+  });
+}
+
+/**
+ * Point-in-polygon test (ray casting), for the roadmap item 7 polygon/
+ * territory tool. Polygons are drawn client-side in Leaflet and membership
+ * is checked here against whatever properties are already loaded — no
+ * PostGIS or server-side geo engine needed at Omaha-market scale, per the
+ * 8/26/2026 "Property map feature split" decision.
+ *
+ * `ring` is a GeoJSON-style array of [lng, lat] pairs (first ring only —
+ * v1 doesn't support polygons with holes, which the draw tool never
+ * produces anyway).
+ */
+export function pointInPolygon(
+  point: { latitude: number; longitude: number },
+  ring: [number, number][]
+): boolean {
+  const x = point.longitude;
+  const y = point.latitude;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const intersects =
+      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Filter a list of geocoded rows down to those inside a drawn polygon.
+ * Rows missing latitude/longitude are silently excluded, same convention
+ * as withinRadius above.
+ */
+export function withinPolygon<T extends { latitude: number | null; longitude: number | null }>(
+  rows: T[],
+  ring: [number, number][]
+): T[] {
+  return rows.filter((row) => {
+    if (row.latitude == null || row.longitude == null) return false;
+    return pointInPolygon({ latitude: row.latitude, longitude: row.longitude }, ring);
   });
 }

@@ -14,6 +14,7 @@ type PropertyRow = {
   building_sf: number | null;
   land_acres: number | null;
   research_status: string | null;
+  priority: string | null;
   suite_number: string | null;
   parent_property_id: string | null;
   parent: { display_code: string | null; address: string } | { display_code: string | null; address: string }[] | null;
@@ -44,7 +45,7 @@ export default async function PropertiesPage() {
       supabase
         .from("properties")
         .select(
-          "id, display_code, address, city, state, zip, property_type, building_sf, land_acres, research_status, suite_number, parent_property_id, parent:properties!parent_property_id(display_code, address)"
+          "id, display_code, address, city, state, zip, property_type, building_sf, land_acres, research_status, priority, suite_number, parent_property_id, parent:properties!parent_property_id(display_code, address)"
         )
         .order("created_at", { ascending: false })
         .returns<PropertyRow[]>(),
@@ -126,6 +127,11 @@ export default async function PropertiesPage() {
           placeholder="Land acres"
           className="border border-gray-300 rounded px-3 py-2"
         />
+        <input
+          name="priority"
+          placeholder="Priority (High / Medium / Low, or your own scale)"
+          className="border border-gray-300 rounded px-3 py-2"
+        />
         <textarea
           name="notes"
           placeholder="Notes"
@@ -155,6 +161,7 @@ export default async function PropertiesPage() {
             <th className="py-2 pr-3">Type</th>
             <th className="py-2 pr-3">Building SF</th>
             <th className="py-2 pr-3">Land Acres</th>
+            <th className="py-2 pr-3">Priority</th>
             <th className="py-2 pr-3">Status</th>
           </tr>
         </thead>
@@ -178,6 +185,7 @@ export default async function PropertiesPage() {
                 {p.building_sf?.toLocaleString() ?? "—"}
               </td>
               <td className="py-2 pr-3">{p.land_acres ?? "—"}</td>
+              <td className="py-2 pr-3">{p.priority ?? "—"}</td>
               <td className="py-2 pr-3">
                 <span
                   className={`px-2 py-0.5 rounded text-xs ${
@@ -191,7 +199,7 @@ export default async function PropertiesPage() {
           ))}
           {properties?.length === 0 && (
             <tr>
-              <td colSpan={7} className="py-4 text-gray-400">
+              <td colSpan={8} className="py-4 text-gray-400">
                 No properties yet.
               </td>
             </tr>

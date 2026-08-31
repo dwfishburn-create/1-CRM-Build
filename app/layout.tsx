@@ -38,6 +38,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <Link href="/properties" className="text-gray-600 hover:text-black">
             Properties
           </Link>
+          <Link href="/map" className="text-gray-600 hover:text-black">
+            Map
+          </Link>
           <Link href="/entities" className="text-gray-600 hover:text-black">
             Entities
           </Link>
