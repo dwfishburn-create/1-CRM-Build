@@ -118,3 +118,77 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ contact: data }, { status: 201 });
 }
+
+// PATCH /api/agent/contacts — update one or more fields on an existing
+// contact. Body: { id, ...fields }. Only the fields actually present in the
+// body are written — an omitted field is left untouched (partial update,
+// not a full replace); passing a field as an empty string clears it to null
+// (e.g. entity_id: "" to unlink from its entity). Accepts the same field
+// set POST does, minus display_code (never editable): first_name,
+// last_name, email, phone, mobile_phone, title, entity_id, notes. At least
+// one field besides id is required.
+//
+// Added 9/1/2026 to close the gap flagged in
+// CRM_Requirements_and_Decisions_Log.md ("Missing update_contact MCP
+// tool") — until now contacts had no update/PATCH path at all, so
+// correcting or filling in a field on an existing contact (e.g. adding a
+// confirmed email after the fact) meant a manual Supabase SQL UPDATE, same
+// as the Astlali spelling-fix workaround. Deliberately narrow — same
+// pattern as the properties/tasks PATCH endpoints, not a general-purpose
+// arbitrary-column update.
+export async function PATCH(request: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const id = String(body.id || "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "id is required." }, { status: 400 });
+  }
+
+  const editableFields = [
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "mobile_phone",
+    "title",
+    "entity_id",
+    "notes",
+  ] as const;
+
+  const updatePayload: Record<string, unknown> = {};
+  for (const field of editableFields) {
+    if (field in body) {
+      const value = String(body[field] ?? "").trim();
+      updatePayload[field] = value || null;
+    }
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Provide at least one field to update: first_name, last_name, email, phone, " +
+          "mobile_phone, title, entity_id, or notes.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("contacts")
+    .update(updatePayload)
+    .eq("id", id)
+    .select("*, entity:entities!entity_id(id, display_code, name)")
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ contact: data });
+}

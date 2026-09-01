@@ -115,6 +115,32 @@ const handler = createMcpHandler(
       },
       async (args) => toolResult(await agentApiPost("contacts", args))
     );
+    server.registerTool(
+      "update_contact",
+      {
+        title: "Update contact",
+        description:
+          "Update one or more fields on an EXISTING contact by id — first_name, last_name, " +
+          "email, phone, mobile_phone, title, entity_id, notes. Only the fields provided are " +
+          "changed; omitted fields are left as-is. Pass a field as an empty string to clear it " +
+          "(e.g. entity_id: \"\" to unlink from its entity). At least one field besides id is " +
+          "required. Added 9/1/2026 to close the gap where an existing contact's email/phone/etc. " +
+          "could only be set at creation time, not corrected or filled in afterward — see " +
+          "CRM_Requirements_and_Decisions_Log.md.",
+        inputSchema: {
+          id: z.string().min(1),
+          first_name: z.string().optional(),
+          last_name: z.string().optional(),
+          email: z.string().optional(),
+          phone: z.string().optional(),
+          mobile_phone: z.string().optional(),
+          title: z.string().optional(),
+          entity_id: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("contacts", args))
+    );
 
     // --- contact_entities links ---
     server.registerTool(
