@@ -2,6 +2,7 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { agentApiGet, agentApiPost, agentApiPatch, type AgentApiResult } from "@/lib/agentApiClient";
+import { getSopChecklist } from "@/lib/sopMatrix";
 
 // MCP connector for the CRM's Agent API — added 8/27/2026 (see
 // CRM_Requirements_and_Decisions_Log.md, "standing MCP connector" entry).
@@ -249,6 +250,30 @@ const handler = createMcpHandler(
         },
       },
       async (args) => toolResult(await agentApiPost("projects", args))
+    );
+    server.registerTool(
+      "get_sop_checklist",
+      {
+        title: "Get companion-SOP checklist for a project type",
+        description:
+          "Look up which companion SOPs to load into a new engagement's Claude Project " +
+          "Knowledge base, and how (Load as-is / Adapt with judgment / Gap — no SOP exists yet), " +
+          "per Section 4 of New_Project_Setup_and_Categorization_-_SOP.md. Added 9/1/2026 so this " +
+          "doesn't need re-deriving from the SOP doc by hand every time a new engagement is set " +
+          "up. project_type accepts a single code (\"TR\") or a compound/undecided value as " +
+          "stored on a live project (\"TR/BR\") — unions the checklist across every code found. " +
+          "This is a STATIC snapshot of the matrix, not a live fetch of the SOP doc — the result " +
+          "includes source_last_synced so staleness is visible; if in doubt, cross-check the SOP " +
+          "doc's own \"Last updated\" line.",
+        inputSchema: {
+          project_type: z.string().min(1),
+        },
+      },
+      async ({ project_type }) => ({
+        content: [
+          { type: "text" as const, text: JSON.stringify(getSopChecklist(project_type), null, 2) },
+        ],
+      })
     );
 
     // --- property_owner links ---

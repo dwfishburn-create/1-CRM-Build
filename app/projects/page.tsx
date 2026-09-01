@@ -15,8 +15,13 @@ type ProjectRow = {
 };
 
 // Dan's existing engagement taxonomy from
-// New_Project_Setup_and_Categorization_-_SOP.md
-const PROJECT_TYPES = ["TR", "BR", "CL", "CS", "L", "LRT", "LRLL"];
+// New_Project_Setup_and_Categorization_-_SOP.md. SL (Sub-Lease Listing)
+// added 8/26/2026 — this list was stale (missing it) until 9/1/2026.
+// project_type stays free text in the DB (no check constraint) so a
+// live compound/undecided case like "TR/BR" (deal path not yet chosen)
+// stays possible — pick one of these for the normal case, or type a
+// "X/Y" combo directly in this field if the path is genuinely undecided.
+const PROJECT_TYPES = ["TR", "BR", "CL", "CS", "L", "LRT", "LRLL", "SL"];
 
 const STATUSES = [
   { value: "active", label: "Active" },

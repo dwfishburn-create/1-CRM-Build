@@ -110,12 +110,20 @@ create index idx_property_owner_owner on property_owner(owner_id);
 
 -- ---------------------------------------------------------------------------
 -- Projects (assignments) — engagement taxonomy from
--- New_Project_Setup_and_Categorization_-_SOP.md: TR, BR, CL, CS, L, LRT, LRLL
+-- New_Project_Setup_and_Categorization_-_SOP.md: TR, BR, CL, CS, L, LRT,
+-- LRLL, SL (SL added 8/26/2026 — comment updated 9/1/2026, was stale).
+--
+-- Deliberately no check constraint on project_type (decided 9/1/2026): a
+-- live record (Astlali Cocina & Tequila) uses the compound value "TR/BR"
+-- for a genuinely undecided tenant-rep-or-buyer-rep path, and a hard enum
+-- would either block that case or need its own combinatorial escape hatch.
+-- Free text stays the simplest fit for how this field is actually used —
+-- see CRM_Requirements_and_Decisions_Log.md, "Project type taxonomy" entry.
 -- ---------------------------------------------------------------------------
 create table projects (
   id uuid primary key default gen_random_uuid(),
   project_code text unique not null, -- e.g. TR-2026-001
-  project_type text not null, -- TR / BR / CL / CS / L / LRT / LRLL
+  project_type text not null, -- TR / BR / CL / CS / L / LRT / LRLL / SL — free text, see note above
   client_name text not null,
   property_id uuid references properties(id) on delete set null,
   status text default 'active' check (status in ('active','on_hold','closed_won','closed_lost')),
