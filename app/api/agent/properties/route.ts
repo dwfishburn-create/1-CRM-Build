@@ -147,15 +147,30 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ property: data }, { status: 201 });
 }
 
-// PATCH /api/agent/properties — update a property's coordinates. Body:
-// { id, action: "geocode" } looks up the property's own address/city/
-// state/zip and (re)geocodes it — this is the backfill path: a session can
-// list_properties, find rows with latitude/longitude null, and PATCH each
-// one by id without needing to already know its address. Or
-// { id, latitude, longitude } sets coordinates directly (a manual
-// correction, or a value from some other source). Deliberately narrow —
-// same pattern as the tasks PATCH endpoint — anything beyond coordinates
-// goes through the web UI or SQL editor.
+// PATCH /api/agent/properties — two modes:
+// 1. { id, action: "geocode" } — looks up the property's own address/city/
+//    state/zip and (re)geocodes it. This is the backfill path: a session
+//    can list_properties, find rows with latitude/longitude null, and
+//    PATCH each one by id without needing to already know its address.
+// 2. { id, ...fields } — partial update of one or more editable fields:
+//    address, city, state, zip, county, parcel_number, property_type,
+//    submarket, building_sf, land_acres, year_built, parent_property_id,
+//    suite_number, market_status, research_status, priority, notes,
+//    latitude, longitude. Only fields present in the body are written —
+//    an omitted field is left untouched. A string field sent as "" clears
+//    it to null. A numeric field (building_sf, land_acres, year_built,
+//    latitude, longitude) accepts a number or numeric string; an empty
+//    value clears it to null. display_code is never editable. At least
+//    one field besides id (or action) is required.
+//
+// Extended 9/2/2026 from the original geocode-only PATCH, closing the same
+// gap update_contact closed for contacts — PROP-0003's building_sf was
+// stuck at a confirmed-wrong 1800 with no supported way to correct it
+// (see CRM_Requirements_and_Decisions_Log.md, "PROP-0003 building_sf").
+// Backward compatible: an existing caller sending { id, latitude,
+// longitude } with no action still works exactly as before, now routed
+// through the general-field path (latitude/longitude are just two of the
+// numeric editable fields) instead of a hardcoded lat/long-only branch.
 export async function PATCH(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -170,9 +185,6 @@ export async function PATCH(request: NextRequest) {
   }
 
   const action = String(body.action || "").trim();
-
-  let latitude: number;
-  let longitude: number;
 
   if (action === "geocode") {
     const { data: existing, error: fetchError } = await supabase
@@ -195,19 +207,76 @@ export async function PATCH(request: NextRequest) {
         { status: 200 }
       );
     }
-    latitude = geocoded.latitude;
-    longitude = geocoded.longitude;
-  } else if (
-    typeof body.latitude === "number" &&
-    typeof body.longitude === "number"
-  ) {
-    latitude = body.latitude;
-    longitude = body.longitude;
-  } else {
+
+    const { data, error } = await supabase
+      .from("properties")
+      .update({ latitude: geocoded.latitude, longitude: geocoded.longitude })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ property: data, geocoded: true });
+  }
+
+  const stringFields = [
+    "address",
+    "city",
+    "state",
+    "zip",
+    "county",
+    "parcel_number",
+    "property_type",
+    "submarket",
+    "parent_property_id",
+    "suite_number",
+    "market_status",
+    "research_status",
+    "priority",
+    "notes",
+  ] as const;
+  const numericFields = [
+    "building_sf",
+    "land_acres",
+    "year_built",
+    "latitude",
+    "longitude",
+  ] as const;
+
+  const updatePayload: Record<string, unknown> = {};
+  for (const field of stringFields) {
+    if (field in body) {
+      const value = String(body[field] ?? "").trim();
+      updatePayload[field] = value || null;
+    }
+  }
+  for (const field of numericFields) {
+    if (field in body) {
+      const raw = body[field];
+      if (raw === null || raw === "") {
+        updatePayload[field] = null;
+      } else {
+        const num = Number(raw);
+        if (Number.isNaN(num)) {
+          return NextResponse.json(
+            { error: `${field} must be a number.` },
+            { status: 400 }
+          );
+        }
+        updatePayload[field] = num;
+      }
+    }
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
     return NextResponse.json(
       {
         error:
-          'Provide either { action: "geocode" } or numeric { latitude, longitude }.',
+          'Provide either { action: "geocode" }, or at least one field to update: ' +
+          [...stringFields, ...numericFields].join(", ") + ".",
       },
       { status: 400 }
     );
@@ -215,7 +284,7 @@ export async function PATCH(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("properties")
-    .update({ latitude, longitude })
+    .update(updatePayload)
     .eq("id", id)
     .select()
     .single();
@@ -224,5 +293,5 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ property: data, geocoded: true });
+  return NextResponse.json({ property: data });
 }

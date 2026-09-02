@@ -82,6 +82,29 @@ const handler = createMcpHandler(
       },
       async (args) => toolResult(await agentApiPost("entities", args))
     );
+    server.registerTool(
+      "update_entity",
+      {
+        title: "Update entity",
+        description:
+          "Update one or more fields on an EXISTING entity by id — name, entity_type, industry, " +
+          "website, primary_contact_id, notes. Only the fields provided are changed; omitted " +
+          "fields are left as-is. Pass a field as an empty string to clear it. At least one field " +
+          "besides id is required. Added 9/2/2026 to close the gap where an existing entity's " +
+          "name/etc. could only be set at creation time — e.g. a spelling correction like Astlali " +
+          "Concina->Cocina previously needed a raw SQL UPDATE. See CRM_Requirements_and_Decisions_Log.md.",
+        inputSchema: {
+          id: z.string().min(1),
+          name: z.string().optional(),
+          entity_type: z.string().optional(),
+          industry: z.string().optional(),
+          website: z.string().optional(),
+          primary_contact_id: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("entities", args))
+    );
 
     // --- contacts ---
     server.registerTool(
@@ -247,6 +270,45 @@ const handler = createMcpHandler(
       },
       async (args) => toolResult(await agentApiPatch("properties", args))
     );
+    server.registerTool(
+      "update_property",
+      {
+        title: "Update property",
+        description:
+          "Update one or more fields on an EXISTING property by id — address, city, state, zip, " +
+          "county, parcel_number, property_type, submarket, building_sf, land_acres, year_built, " +
+          "parent_property_id, suite_number, market_status, research_status, priority, notes, " +
+          "latitude, longitude. Only the fields provided are changed; omitted fields are left " +
+          "as-is. Pass a string field as an empty string to clear it. At least one field besides " +
+          "id is required. For latitude/longitude specifically, prefer geocode_property unless " +
+          "you already have the exact coordinates. Added 9/2/2026 to close the gap where a " +
+          "confirmed data error (e.g. PROP-0003's building_sf) had no supported way to correct " +
+          "it — see CRM_Requirements_and_Decisions_Log.md.",
+        inputSchema: {
+          id: z.string().min(1),
+          address: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().optional(),
+          zip: z.string().optional(),
+          county: z.string().optional(),
+          parcel_number: z.string().optional(),
+          property_type: z.string().optional(),
+          submarket: z.string().optional(),
+          building_sf: z.number().optional(),
+          land_acres: z.number().optional(),
+          year_built: z.number().optional(),
+          parent_property_id: z.string().optional(),
+          suite_number: z.string().optional(),
+          market_status: z.enum(["on_market", "off_market"]).optional(),
+          research_status: z.string().optional(),
+          priority: z.string().optional(),
+          notes: z.string().optional(),
+          latitude: z.number().optional(),
+          longitude: z.number().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("properties", args))
+    );
 
     // --- projects ---
     server.registerTool(
@@ -276,6 +338,30 @@ const handler = createMcpHandler(
         },
       },
       async (args) => toolResult(await agentApiPost("projects", args))
+    );
+    server.registerTool(
+      "update_project",
+      {
+        title: "Update project",
+        description:
+          "Update one or more fields on an EXISTING project by id — project_code, project_type, " +
+          "client_name, status, start_date, target_close_date, notes. Only the fields provided " +
+          "are changed; omitted fields are left as-is. Pass a field as an empty string to clear " +
+          "it. At least one field besides id is required. Added 9/2/2026 to close the gap where " +
+          "a spelling correction like Astlali Concina->Cocina previously needed a raw SQL UPDATE " +
+          "— see CRM_Requirements_and_Decisions_Log.md.",
+        inputSchema: {
+          id: z.string().min(1),
+          project_code: z.string().optional(),
+          project_type: z.string().optional(),
+          client_name: z.string().optional(),
+          status: z.string().optional(),
+          start_date: z.string().optional(),
+          target_close_date: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("projects", args))
     );
     server.registerTool(
       "get_sop_checklist",
