@@ -7,7 +7,12 @@ export const dynamic = "force-dynamic";
 type NamedContact = { id: string; first_name: string | null; last_name: string | null };
 type NamedEntity = { id: string; name: string };
 type NamedProperty = { id: string; display_code: string | null; address: string };
-type NamedProject = { id: string; project_code: string; client_name: string };
+type NamedProject = {
+  id: string;
+  project_code: string;
+  client_name: string;
+  expected_value: number | null;
+};
 type NamedRequirement = { id: string; display_code: string | null; deal_type: string | null };
 
 type TaskRow = {
@@ -53,6 +58,34 @@ function isDueToday(dueDate: string | null): boolean {
   return dueDate === todayStr();
 }
 
+// Value-aware triage sort, added 9/2/2026 per the Value/Probability/
+// Expected-Value scoring build — surfaces high-Expected-Value deals within
+// the daily triage view instead of pure chronological order. Urgency still
+// wins outright: overdue tasks stay sorted by how overdue they are (most
+// overdue first), same as before this change. Only among NON-overdue tasks
+// (due today, due later, or no due date) does Expected Value become the
+// primary sort, with due date as the tie-break — so a $0 due-today
+// reminder doesn't get buried under a large deal that isn't due for weeks.
+function taskExpectedValue(t: TaskRow): number {
+  return one(t.project)?.expected_value ?? 0;
+}
+
+function compareNonOverdue(a: TaskRow, b: TaskRow): number {
+  const evDiff = taskExpectedValue(b) - taskExpectedValue(a);
+  if (evDiff !== 0) return evDiff;
+  const dueA = a.due_date ?? "9999-12-31";
+  const dueB = b.due_date ?? "9999-12-31";
+  return dueA.localeCompare(dueB);
+}
+
+function sortForTriage(tasks: TaskRow[]): TaskRow[] {
+  const overdue = tasks
+    .filter((t) => isOverdue(t.due_date))
+    .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
+  const rest = tasks.filter((t) => !isOverdue(t.due_date)).sort(compareNonOverdue);
+  return [...overdue, ...rest];
+}
+
 function linkedToLabel(t: TaskRow): { label: string; href: string } | null {
   const project = one(t.project);
   if (project) {
@@ -90,12 +123,20 @@ function TaskCard({
   const linked = linkedToLabel(task);
   const overdue = isOverdue(task.due_date);
   const dueToday = isDueToday(task.due_date);
+  const expectedValue = one(task.project)?.expected_value ?? null;
 
   return (
     <div className="border border-gray-200 rounded-lg p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm">{task.description}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm">{task.description}</p>
+            {expectedValue != null && (
+              <span className="shrink-0 text-xs text-gray-600 border border-gray-200 rounded px-2 py-0.5 whitespace-nowrap">
+                ${Math.round(expectedValue).toLocaleString()} EV
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-400 mt-1">
             {task.display_code}
             {task.category && <> · {task.category}</>}
@@ -150,7 +191,7 @@ export default async function DashboardPage() {
   const { data: tasks, error } = await supabase
     .from("tasks")
     .select(
-      "id, display_code, description, due_date, category, waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name), contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, name), property:properties!property_id(id, display_code, address), project:projects!project_id(id, project_code, client_name), requirement:requirements!requirement_id(id, display_code, deal_type)"
+      "id, display_code, description, due_date, category, waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name), contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, name), property:properties!property_id(id, display_code, address), project:projects!project_id(id, project_code, client_name, expected_value), requirement:requirements!requirement_id(id, display_code, deal_type)"
     )
     .eq("status", "open")
     .order("due_date", { ascending: true, nullsFirst: false })
@@ -182,7 +223,7 @@ export default async function DashboardPage() {
     }
   }
 
-  const yourMove = allTasks.filter((t) => !one(t.waiting_on_contact));
+  const yourMove = sortForTriage(allTasks.filter((t) => !one(t.waiting_on_contact)));
   const waitingOnTasks = allTasks.filter((t) => one(t.waiting_on_contact));
 
   const waitingByContact = new Map<string, { contact: NamedContact; tasks: TaskRow[] }>();
@@ -195,9 +236,24 @@ export default async function DashboardPage() {
       waitingByContact.set(c.id, { contact: c, tasks: [t] });
     }
   }
+  for (const bucket of waitingByContact.values()) {
+    bucket.tasks = sortForTriage(bucket.tasks);
+  }
 
   const overdueCount = allTasks.filter((t) => isOverdue(t.due_date)).length;
   const dueTodayCount = allTasks.filter((t) => isDueToday(t.due_date)).length;
+
+  // Total Expected Value across every project with an open task — summed
+  // per distinct project (not per task), so a project with 3 open tasks
+  // doesn't triple-count its Expected Value.
+  const evByProject = new Map<string, number>();
+  for (const t of allTasks) {
+    const p = one(t.project);
+    if (p && p.expected_value != null) {
+      evByProject.set(p.id, p.expected_value);
+    }
+  }
+  const totalExpectedValue = Array.from(evByProject.values()).reduce((sum, v) => sum + v, 0);
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -215,7 +271,7 @@ export default async function DashboardPage() {
 
       {error && <p className="text-red-600 mb-4">Error loading dashboard: {error.message}</p>}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
         <div className="border border-gray-200 rounded-lg p-4">
           <div className="text-3xl font-semibold">{allTasks.length}</div>
           <div className="text-gray-500 text-sm">Open tasks</div>
@@ -236,9 +292,20 @@ export default async function DashboardPage() {
           <div className="text-3xl font-semibold">{waitingByContact.size}</div>
           <div className="text-gray-500 text-sm">People you&apos;re waiting on</div>
         </div>
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div className="text-3xl font-semibold">
+            ${Math.round(totalExpectedValue).toLocaleString()}
+          </div>
+          <div className="text-gray-500 text-sm">Expected value in play</div>
+        </div>
       </div>
 
-      <h2 className="text-lg font-semibold mb-3">Your move ({yourMove.length})</h2>
+      <h2 className="text-lg font-semibold mb-1">Your move ({yourMove.length})</h2>
+      <p className="text-gray-400 text-xs mb-3">
+        Sorted by Expected Value within each urgency tier — overdue items
+        stay sorted by how overdue they are; everything else is sorted
+        highest-value first, due date as the tie-break.
+      </p>
       <div className="grid gap-2 mb-10">
         {yourMove.map((t) => (
           <TaskCard
