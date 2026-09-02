@@ -12,6 +12,7 @@ type ProjectRow = {
   status: string;
   start_date: string | null;
   target_close_date: string | null;
+  expected_value: number | null;
 };
 
 // Dan's existing engagement taxonomy from
@@ -38,7 +39,7 @@ export default async function ProjectsPage() {
   const { data: projects, error } = await supabase
     .from("projects")
     .select(
-      "id, project_code, project_type, client_name, status, start_date, target_close_date"
+      "id, project_code, project_type, client_name, status, start_date, target_close_date, expected_value"
     )
     .order("created_at", { ascending: false })
     .returns<ProjectRow[]>();
@@ -138,6 +139,7 @@ export default async function ProjectsPage() {
             <th className="py-2 pr-3">Status</th>
             <th className="py-2 pr-3">Start</th>
             <th className="py-2 pr-3">Target Close</th>
+            <th className="py-2 pr-3">Expected Value</th>
           </tr>
         </thead>
         <tbody>
@@ -160,11 +162,16 @@ export default async function ProjectsPage() {
               <td className="py-2 pr-3 text-gray-500">
                 {p.target_close_date ?? "—"}
               </td>
+              <td className="py-2 pr-3 text-gray-500">
+                {p.expected_value != null
+                  ? `$${Math.round(p.expected_value).toLocaleString()}`
+                  : "—"}
+              </td>
             </tr>
           ))}
           {projects?.length === 0 && (
             <tr>
-              <td colSpan={6} className="py-4 text-gray-400">
+              <td colSpan={7} className="py-4 text-gray-400">
                 No projects yet.
               </td>
             </tr>

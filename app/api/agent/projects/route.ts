@@ -22,9 +22,19 @@ export async function GET(request: NextRequest) {
 
 // POST /api/agent/projects — create a project (formal assignment).
 // Body: { project_code, project_type, client_name, status?, start_date?,
-//         target_close_date?, notes? }
+//         target_close_date?, notes?, deal_price?, commission_rate?,
+//         probability_pct?, strategic_weight_note? }
 // project_type is Dan's existing engagement taxonomy: TR/BR/CL/CS/L/LRT/LRLL.
 // Mirrors app/projects/actions.ts:createProject field-for-field.
+//
+// deal_price/commission_rate/probability_pct/strategic_weight_note are the
+// 9/2/2026 Value/Probability/Expected-Value scoring fields (see
+// CRM_Requirements_and_Decisions_Log.md, 8/23/2026 design). All four are
+// optional at creation — per that design, deal value is filled in as Dan
+// pulls deal documents/property info into the project, not necessarily at
+// project setup. deal_value and expected_value are DB-generated columns
+// (deal_price * commission_rate / 100, and that times probability_pct/100)
+// — never accepted on the request body, computed automatically.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -62,18 +72,42 @@ export async function POST(request: NextRequest) {
     ? String(body.target_close_date)
     : null;
   const notes = String(body.notes || "").trim() || null;
+  const strategic_weight_note =
+    String(body.strategic_weight_note || "").trim() || null;
+
+  const insertPayload: Record<string, unknown> = {
+    project_code,
+    project_type,
+    client_name,
+    status,
+    start_date,
+    target_close_date,
+    notes,
+    strategic_weight_note,
+  };
+
+  for (const field of ["deal_price", "commission_rate", "probability_pct"] as const) {
+    const raw = body[field];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const num = Number(raw);
+    if (Number.isNaN(num)) {
+      return NextResponse.json(
+        { error: `${field} must be a number.` },
+        { status: 400 }
+      );
+    }
+    if (field === "probability_pct" && (num < 0 || num > 100)) {
+      return NextResponse.json(
+        { error: "probability_pct must be between 0 and 100." },
+        { status: 400 }
+      );
+    }
+    insertPayload[field] = num;
+  }
 
   const { data, error } = await supabase
     .from("projects")
-    .insert({
-      project_code,
-      project_type,
-      client_name,
-      status,
-      start_date,
-      target_close_date,
-      notes,
-    })
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -86,15 +120,23 @@ export async function POST(request: NextRequest) {
 
 // PATCH /api/agent/projects — update one or more fields on an existing
 // project. Body: { id, ...fields }. Only the fields actually present in
-// the body are written — an omitted field is left untouched; a field sent
-// as an empty string clears it to null. Editable fields: project_code,
-// project_type, client_name, status, start_date, target_close_date,
-// notes. At least one field besides id is required.
+// the body are written — an omitted field is left untouched; a string
+// field sent as an empty string clears it to null; a numeric field sent
+// as an empty value clears it to null. Editable string fields:
+// project_code, project_type, client_name, status, start_date,
+// target_close_date, notes, strategic_weight_note. Editable numeric
+// fields: deal_price, commission_rate, probability_pct (0-100). At least
+// one field besides id is required. deal_value/expected_value are
+// DB-generated (never accepted here — see the POST handler above).
 //
 // Added 9/2/2026, same pattern/motivation as update_contact (9/1/2026) and
 // update_entity/the update_property extension (9/2/2026) — a spelling
 // correction like the 8/31/2026 Astlali Concina->Cocina fix needed raw SQL
-// because no update path existed for projects. See
+// because no update path existed for projects. Extended the same day to
+// cover the Value/Probability/Expected-Value scoring fields (migration
+// 010) — the same "no supported fix path" gap that motivated the PATCH
+// route itself now applies to deal_price/commission_rate/probability_pct
+// as deal terms get confirmed or corrected after project setup. See
 // CRM_Requirements_and_Decisions_Log.md.
 export async function PATCH(request: NextRequest) {
   let body: Record<string, unknown>;
@@ -109,7 +151,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "id is required." }, { status: 400 });
   }
 
-  const editableFields = [
+  const stringFields = [
     "project_code",
     "project_type",
     "client_name",
@@ -117,13 +159,42 @@ export async function PATCH(request: NextRequest) {
     "start_date",
     "target_close_date",
     "notes",
+    "strategic_weight_note",
+  ] as const;
+  const numericFields = [
+    "deal_price",
+    "commission_rate",
+    "probability_pct",
   ] as const;
 
   const updatePayload: Record<string, unknown> = {};
-  for (const field of editableFields) {
+  for (const field of stringFields) {
     if (field in body) {
       const value = String(body[field] ?? "").trim();
       updatePayload[field] = value || null;
+    }
+  }
+  for (const field of numericFields) {
+    if (field in body) {
+      const raw = body[field];
+      if (raw === null || raw === "") {
+        updatePayload[field] = null;
+      } else {
+        const num = Number(raw);
+        if (Number.isNaN(num)) {
+          return NextResponse.json(
+            { error: `${field} must be a number.` },
+            { status: 400 }
+          );
+        }
+        if (field === "probability_pct" && (num < 0 || num > 100)) {
+          return NextResponse.json(
+            { error: "probability_pct must be between 0 and 100." },
+            { status: 400 }
+          );
+        }
+        updatePayload[field] = num;
+      }
     }
   }
 
@@ -131,7 +202,9 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Provide at least one field to update: " + editableFields.join(", ") + ".",
+          "Provide at least one field to update: " +
+          [...stringFields, ...numericFields].join(", ") +
+          ".",
       },
       { status: 400 }
     );

@@ -10,6 +10,7 @@ import {
   removeProjectContact,
   addReferenceLink,
   removeReferenceLink,
+  updateProjectValue,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,12 @@ type Project = {
   start_date: string | null;
   target_close_date: string | null;
   notes: string | null;
+  deal_price: number | null;
+  commission_rate: number | null;
+  deal_value: number | null;
+  probability_pct: number | null;
+  expected_value: number | null;
+  strategic_weight_note: string | null;
 };
 
 type CandidateRow = {
@@ -127,7 +134,7 @@ export default async function ProjectDetailPage(
     supabase
       .from("projects")
       .select(
-        "id, project_code, project_type, client_name, status, start_date, target_close_date, notes"
+        "id, project_code, project_type, client_name, status, start_date, target_close_date, notes, deal_price, commission_rate, deal_value, probability_pct, expected_value, strategic_weight_note"
       )
       .eq("id", id)
       .maybeSingle()
@@ -214,6 +221,99 @@ export default async function ProjectDetailPage(
           {project.notes}
         </p>
       )}
+
+      <h2 className="text-lg font-semibold mb-1">Deal value &amp; priority</h2>
+      <p className="text-gray-500 mb-4 text-sm">
+        Deal Value and Expected Value are calculated automatically (price ×
+        commission rate, and that × probability of closing) — fill in Deal
+        Price, Commission Rate, and Probability below and they update on
+        save. Strategic Weight is a judgment call (relationship leverage,
+        repeat-business likelihood) — a note, not a score, and it&apos;s
+        never calculated for you.
+      </p>
+
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div className="text-xs text-gray-500 uppercase tracking-wide">
+            Deal value
+          </div>
+          <div className="text-2xl font-semibold">
+            {project.deal_value != null
+              ? `$${Math.round(project.deal_value).toLocaleString()}`
+              : "—"}
+          </div>
+        </div>
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div className="text-xs text-gray-500 uppercase tracking-wide">
+            Expected value
+          </div>
+          <div className="text-2xl font-semibold">
+            {project.expected_value != null
+              ? `$${Math.round(project.expected_value).toLocaleString()}`
+              : "—"}
+          </div>
+        </div>
+      </div>
+
+      <form
+        action={updateProjectValue}
+        className="grid grid-cols-4 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
+      >
+        <input type="hidden" name="project_id" value={project.id} />
+        <label className="text-sm">
+          Deal price
+          <input
+            name="deal_price"
+            type="number"
+            step="0.01"
+            defaultValue={project.deal_price ?? ""}
+            placeholder="Sale price, or annualized lease value"
+            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
+          />
+        </label>
+        <label className="text-sm">
+          Commission rate (%)
+          <input
+            name="commission_rate"
+            type="number"
+            step="0.01"
+            defaultValue={project.commission_rate ?? ""}
+            placeholder="e.g. 6"
+            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
+          />
+        </label>
+        <label className="text-sm">
+          Probability (%)
+          <input
+            name="probability_pct"
+            type="number"
+            step="1"
+            min="0"
+            max="100"
+            defaultValue={project.probability_pct ?? ""}
+            placeholder="0–100"
+            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
+          />
+        </label>
+        <div className="flex items-end">
+          <button
+            type="submit"
+            className="bg-black text-white rounded px-4 py-2 h-fit"
+          >
+            Save
+          </button>
+        </div>
+        <label className="text-sm col-span-4">
+          Strategic weight (note, not a score)
+          <textarea
+            name="strategic_weight_note"
+            rows={2}
+            defaultValue={project.strategic_weight_note ?? ""}
+            placeholder="Relationship leverage, repeat-business likelihood, etc. — your judgment call"
+            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
+          />
+        </label>
+      </form>
 
       <h2 className="text-lg font-semibold mb-3">Candidate properties</h2>
 

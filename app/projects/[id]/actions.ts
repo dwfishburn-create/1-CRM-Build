@@ -181,3 +181,61 @@ export async function removeReferenceLink(formData: FormData) {
 
   revalidatePath(`/projects/${project_id}`);
 }
+
+// Set/update the Value/Probability/Expected-Value scoring fields on a
+// project — deal_price, commission_rate, probability_pct (0-100), and the
+// manual strategic_weight_note. deal_value/expected_value are DB-generated
+// and never written here. Added 9/2/2026 per the 8/23/2026 design in
+// CRM_Requirements_and_Decisions_Log.md.
+export async function updateProjectValue(formData: FormData) {
+  const project_id = String(formData.get("project_id") || "").trim();
+  if (!project_id) throw new Error("project_id is required.");
+
+  const deal_price_raw = String(formData.get("deal_price") || "").trim();
+  const commission_rate_raw = String(
+    formData.get("commission_rate") || ""
+  ).trim();
+  const probability_pct_raw = String(
+    formData.get("probability_pct") || ""
+  ).trim();
+  const strategic_weight_note =
+    String(formData.get("strategic_weight_note") || "").trim() || null;
+
+  const deal_price = deal_price_raw ? Number(deal_price_raw) : null;
+  const commission_rate = commission_rate_raw
+    ? Number(commission_rate_raw)
+    : null;
+  const probability_pct = probability_pct_raw
+    ? Number(probability_pct_raw)
+    : null;
+
+  if (deal_price !== null && Number.isNaN(deal_price)) {
+    throw new Error("Deal price must be a number.");
+  }
+  if (commission_rate !== null && Number.isNaN(commission_rate)) {
+    throw new Error("Commission rate must be a number.");
+  }
+  if (probability_pct !== null && Number.isNaN(probability_pct)) {
+    throw new Error("Probability must be a number.");
+  }
+  if (
+    probability_pct !== null &&
+    (probability_pct < 0 || probability_pct > 100)
+  ) {
+    throw new Error("Probability must be between 0 and 100.");
+  }
+
+  const { error } = await supabase
+    .from("projects")
+    .update({
+      deal_price,
+      commission_rate,
+      probability_pct,
+      strategic_weight_note,
+    })
+    .eq("id", project_id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/projects/${project_id}`);
+}

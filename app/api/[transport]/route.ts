@@ -326,7 +326,11 @@ const handler = createMcpHandler(
         title: "Create project",
         description:
           "Create a project (a formal engagement). project_type is Dan's engagement taxonomy " +
-          "(TR/BR/CL/CS/L/LRT/LRLL/SL) as free text.",
+          "(TR/BR/CL/CS/L/LRT/LRLL/SL) as free text. deal_price/commission_rate/probability_pct/ " +
+          "strategic_weight_note are the Value/Probability/Expected-Value scoring fields (added " +
+          "9/2/2026) — all optional at creation since deal terms are typically filled in later, " +
+          "as Dan pulls deal documents into the project. deal_value and expected_value are " +
+          "computed automatically and can never be set directly.",
         inputSchema: {
           project_code: z.string().min(1),
           project_type: z.string().min(1),
@@ -335,6 +339,10 @@ const handler = createMcpHandler(
           start_date: z.string().optional(),
           target_close_date: z.string().optional(),
           notes: z.string().optional(),
+          deal_price: z.number().optional(),
+          commission_rate: z.number().optional(),
+          probability_pct: z.number().optional(),
+          strategic_weight_note: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("projects", args))
@@ -345,11 +353,14 @@ const handler = createMcpHandler(
         title: "Update project",
         description:
           "Update one or more fields on an EXISTING project by id — project_code, project_type, " +
-          "client_name, status, start_date, target_close_date, notes. Only the fields provided " +
-          "are changed; omitted fields are left as-is. Pass a field as an empty string to clear " +
-          "it. At least one field besides id is required. Added 9/2/2026 to close the gap where " +
-          "a spelling correction like Astlali Concina->Cocina previously needed a raw SQL UPDATE " +
-          "— see CRM_Requirements_and_Decisions_Log.md.",
+          "client_name, status, start_date, target_close_date, notes, deal_price, commission_rate, " +
+          "probability_pct (0-100), strategic_weight_note. Only the fields provided are changed; " +
+          "omitted fields are left as-is. Pass a field as an empty string (or, for a numeric field, " +
+          "an empty value) to clear it. At least one field besides id is required. deal_value and " +
+          "expected_value are computed automatically and can never be set directly. Added " +
+          "9/2/2026 to close the gap where a spelling correction like Astlali Concina->Cocina " +
+          "previously needed a raw SQL UPDATE; extended the same day for the Value/Probability/ " +
+          "Expected-Value scoring fields — see CRM_Requirements_and_Decisions_Log.md.",
         inputSchema: {
           id: z.string().min(1),
           project_code: z.string().optional(),
@@ -359,6 +370,10 @@ const handler = createMcpHandler(
           start_date: z.string().optional(),
           target_close_date: z.string().optional(),
           notes: z.string().optional(),
+          deal_price: z.number().optional(),
+          commission_rate: z.number().optional(),
+          probability_pct: z.number().optional(),
+          strategic_weight_note: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPatch("projects", args))
