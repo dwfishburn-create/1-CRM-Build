@@ -754,7 +754,15 @@ const handler = createMcpHandler(
     );
   },
   {
-    serverInfo: { name: "dan-fishburn-crm", version: "1.0.0" },
+    // version bumped 9/3/2026 (was a static "1.0.0" since this connector was
+    // first built on 8/27/2026, never changed across 6 tool-discovery-lag
+    // recurrences — see CRM_Requirements_and_Decisions_Log.md). Some MCP
+    // client implementations key tool-list caching off the (name, version)
+    // pair and won't re-fetch a fresh tool list if the version looks
+    // unchanged. BUMP THIS any time a tool is added, removed, or has its
+    // input schema changed — treat it as a real cache-busting key, not a
+    // cosmetic version number.
+    serverInfo: { name: "dan-fishburn-crm", version: "1.1.0" },
     verboseLogs: true,
   }
 );
@@ -763,6 +771,14 @@ const handler = createMcpHandler(
 // (mcp-handler v2's createMcpHandler no longer takes basePath/maxDuration —
 // those are handled by Next.js itself and by where this file lives.)
 export const maxDuration = 60;
+
+// Force this route to be fully dynamic (no caching at the Next.js/Vercel
+// layer) — added 9/3/2026 as a defensive measure alongside the version
+// bump above, in case any HTTP-level caching was contributing to the
+// tool-discovery-lag bug tracked in CRM_Requirements_and_Decisions_Log.md.
+// Cheap and safe either way: this route's responses (tool lists, tool call
+// results) should never be cached.
+export const dynamic = "force-dynamic";
 
 // Static-secret verification for Claude's "Static API Key" custom-connector
 // auth mode: Dan enters MCP_API_TOKEN's value once when adding the
