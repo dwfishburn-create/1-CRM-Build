@@ -26,14 +26,21 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // Scope (v1): the eight resources actually used for "get a new listing/deal
 // into the CRM" (entities, contacts, properties, projects, and the four
 // link/log tables) — the workflow this was built to remove the token-paste
-// step from. requirements/tasks/sale-comps/lease-comps/requirement-parties
-// are not yet wrapped; add them here the same way, if/when a session needs
-// to write to them without a pasted token.
+// step from. tasks/sale-comps/lease-comps are not yet wrapped; add them
+// here the same way, if/when a session needs to write to them without a
+// pasted token.
 //
 // contact_entities added 8/31/2026 (migration 009) — a contact<->entity
 // many-to-many link, for when one person is a principal of more than one
 // company. See the "Contact<->Entity relationship is 1:1" decision in
 // CRM_Requirements_and_Decisions_Log.md.
+//
+// requirements/requirement_parties added 9/3/2026 — the `requirements` and
+// `requirement_parties` tables and their /api/agent/* routes already
+// existed (built 8/25/2026, see CRM_Requirements_and_Decisions_Log.md) but
+// were never wrapped as MCP tools, so every requirement had to go in via
+// the web form. Wrapped the same way as everything else here: a thin
+// pass-through to the existing routes, no new insert/validation logic.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -666,6 +673,84 @@ const handler = createMcpHandler(
         },
       },
       async (args) => toolResult(await agentApiPost("territories", args))
+    );
+
+    // --- requirements ---
+    server.registerTool(
+      "list_requirements",
+      {
+        title: "List requirements",
+        description:
+          "List requirements — a standing, informal capture of what someone told Dan they need " +
+          "(\"let me know if you find this for me\"), distinct from a formal project/assignment. " +
+          "Most recently created first. Optionally filter by status (active/on_hold/fulfilled/dead).",
+        inputSchema: { ...limitArg, status: z.string().optional() },
+      },
+      async ({ limit, status }) =>
+        toolResult(await agentApiGet("requirements", { limit: limit?.toString(), status }))
+    );
+    server.registerTool(
+      "create_requirement",
+      {
+        title: "Create requirement",
+        description:
+          "Create a requirement. deal_type/property_type/priority/source are free text, no fixed " +
+          "list — use whatever term fits (e.g. deal_type: \"Lease\", \"Buy\", \"Sell\", " +
+          "\"Build-to-suit\"). size_min/size_max are square feet, budget_min/budget_max are " +
+          "dollars — any of the four can be omitted. status defaults to \"active\" if not set. " +
+          "This only creates the requirement itself — call link_requirement_party separately to " +
+          "attach the contact(s)/entity(ies) it belongs to.",
+        inputSchema: {
+          deal_type: z.string().optional(),
+          property_type: z.string().optional(),
+          size_min: z.number().optional(),
+          size_max: z.number().optional(),
+          budget_min: z.number().optional(),
+          budget_max: z.number().optional(),
+          target_location: z.string().optional(),
+          timeline: z.string().optional(),
+          status: z.enum(["active", "on_hold", "fulfilled", "dead"]).optional(),
+          priority: z.string().optional(),
+          details: z.string().optional(),
+          source: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("requirements", args))
+    );
+
+    // --- requirement_parties links ---
+    server.registerTool(
+      "list_requirement_parties",
+      {
+        title: "List requirement party links",
+        description:
+          "List the contacts/entities linked to requirements, most recently created first. " +
+          "Optionally filter to one requirement.",
+        inputSchema: { ...limitArg, requirement_id: z.string().optional() },
+      },
+      async ({ limit, requirement_id }) =>
+        toolResult(
+          await agentApiGet("requirement-parties", { limit: limit?.toString(), requirement_id })
+        )
+    );
+    server.registerTool(
+      "link_requirement_party",
+      {
+        title: "Link requirement party",
+        description:
+          "Link a contact and/or entity to a requirement — a single requirement can attach to " +
+          "any combination of both at once (e.g. a decision-maker personally AND the company " +
+          "itself; call this once per party to link). At least one of contact_id/entity_id is " +
+          "required. Unlike the other link tools, this does not upsert — calling it again with " +
+          "the same requirement_id+contact_id (or +entity_id) creates a second link row rather " +
+          "than updating one, since there's nothing on the link itself to update.",
+        inputSchema: {
+          requirement_id: z.string().min(1),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("requirement-parties", args))
     );
   },
   {
