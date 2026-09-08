@@ -41,6 +41,12 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // were never wrapped as MCP tools, so every requirement had to go in via
 // the web form. Wrapped the same way as everything else here: a thin
 // pass-through to the existing routes, no new insert/validation logic.
+//
+// spaces/leases added 9/8/2026 — the Space/Lease data model (migration 011,
+// Phase 1) was built the same day but shipped schema-only, with the first
+// real data (The Shoppes at Lexington rent roll) loaded directly via the
+// Supabase REST API rather than through any Agent API route or MCP tool.
+// This closes that gap — see CRM_Requirements_and_Decisions_Log.md.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -752,6 +758,178 @@ const handler = createMcpHandler(
       },
       async (args) => toolResult(await agentApiPost("requirement-parties", args))
     );
+
+    // --- spaces ---
+    server.registerTool(
+      "list_spaces",
+      {
+        title: "List spaces",
+        description:
+          "List spaces — a leasable unit within a property (or the whole property, for a " +
+          "single-tenant building). Part of the Space/Lease data model (migration 011, Phase 1, " +
+          "9/8/2026) — NOT the legacy parent_property_id child-property pattern used by " +
+          "PROP-0002/0003 and PROP-0006/0007, which stays untouched. Most recently created first. " +
+          "Optionally filter by property_id or space_status (occupied/vacant/owner_occupied).",
+        inputSchema: {
+          ...limitArg,
+          property_id: z.string().optional(),
+          space_status: z.string().optional(),
+        },
+      },
+      async ({ limit, property_id, space_status }) =>
+        toolResult(
+          await agentApiGet("spaces", { limit: limit?.toString(), property_id, space_status })
+        )
+    );
+    server.registerTool(
+      "create_space",
+      {
+        title: "Create space",
+        description:
+          "Create a space (a suite/unit within a property). property_id is required — the " +
+          "property this space belongs to. space_status: occupied, vacant, or owner_occupied — " +
+          "omit to default to vacant. Vacant suites should be tracked, not just occupied ones.",
+        inputSchema: {
+          property_id: z.string().min(1),
+          suite_number: z.string().optional(),
+          building_sf: z.number().optional(),
+          space_status: z.enum(["occupied", "vacant", "owner_occupied"]).optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("spaces", args))
+    );
+    server.registerTool(
+      "update_space",
+      {
+        title: "Update space",
+        description:
+          "Update one or more fields on an EXISTING space by id — property_id, suite_number, " +
+          "building_sf, space_status, notes. Only the fields provided are changed; omitted fields " +
+          "are left as-is. Pass a string field as an empty string to clear it. At least one field " +
+          "besides id is required.",
+        inputSchema: {
+          id: z.string().min(1),
+          property_id: z.string().optional(),
+          suite_number: z.string().optional(),
+          building_sf: z.number().optional(),
+          space_status: z.enum(["occupied", "vacant", "owner_occupied"]).optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("spaces", args))
+    );
+
+    // --- leases ---
+    server.registerTool(
+      "list_leases",
+      {
+        title: "List leases",
+        description:
+          "List leases — the join record carrying the tenant/landlord relationship plus every " +
+          "economic term for one lease term. Part of the Space/Lease data model (migration 011, " +
+          "Phase 1, 9/8/2026). A lease with master_lease_id null IS a Master Lease (landlord_" +
+          "entity_id = Master Landlord); one with master_lease_id set is a Sublease (landlord_" +
+          "entity_id = Sub Landlord, i.e. the master tenant one level down). Most recently created " +
+          "first. Optionally filter by space_id, tenant_entity_id, landlord_entity_id, " +
+          "master_lease_id, or is_current.",
+        inputSchema: {
+          ...limitArg,
+          space_id: z.string().optional(),
+          tenant_entity_id: z.string().optional(),
+          landlord_entity_id: z.string().optional(),
+          master_lease_id: z.string().optional(),
+          is_current: z.boolean().optional(),
+        },
+      },
+      async ({ limit, space_id, tenant_entity_id, landlord_entity_id, master_lease_id, is_current }) =>
+        toolResult(
+          await agentApiGet("leases", {
+            limit: limit?.toString(),
+            space_id,
+            tenant_entity_id,
+            landlord_entity_id,
+            master_lease_id,
+            is_current: is_current === undefined ? undefined : String(is_current),
+          })
+        )
+    );
+    server.registerTool(
+      "create_lease",
+      {
+        title: "Create lease",
+        description:
+          "Create a lease. space_id is required. At least one of tenant_entity_id/" +
+          "tenant_contact_id is required. To record a Sublease, set master_lease_id to the Master " +
+          "Lease's id and landlord_entity_id to the Sub Landlord (the master tenant) — omit " +
+          "master_lease_id for a Master Lease, whose landlord_entity_id is normally the property's " +
+          "fee owner. is_current/comp_eligible default to true if not set. A renewal at new terms " +
+          "should be a NEW row (not an update to the old one) — set the old row's is_current to " +
+          "false via update_lease once the new one is created, so lease history is never " +
+          "overwritten. base_rent_annual/base_rent_monthly/rent_psf/cam_payment_annual/cam_psf/ " +
+          "ti_allowance are all optional numeric terms; cam_payment_annual is the tenant's billed " +
+          "CAM/CAMIT reimbursement.",
+        inputSchema: {
+          space_id: z.string().min(1),
+          tenant_entity_id: z.string().optional(),
+          tenant_contact_id: z.string().optional(),
+          landlord_entity_id: z.string().optional(),
+          landlord_contact_id: z.string().optional(),
+          master_lease_id: z.string().optional(),
+          lease_start_date: z.string().optional(),
+          lease_end_date: z.string().optional(),
+          base_rent_annual: z.number().optional(),
+          base_rent_monthly: z.number().optional(),
+          rent_psf: z.number().optional(),
+          cam_payment_annual: z.number().optional(),
+          cam_psf: z.number().optional(),
+          ti_allowance: z.number().optional(),
+          is_current: z.boolean().optional(),
+          as_of_date: z.string().optional(),
+          comp_eligible: z.boolean().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("leases", args))
+    );
+    server.registerTool(
+      "update_lease",
+      {
+        title: "Update lease",
+        description:
+          "Update one or more fields on an EXISTING lease by id — space_id, tenant_entity_id, " +
+          "tenant_contact_id, landlord_entity_id, landlord_contact_id, master_lease_id, " +
+          "lease_start_date, lease_end_date, as_of_date, base_rent_annual, base_rent_monthly, " +
+          "rent_psf, cam_payment_annual, cam_psf, ti_allowance, is_current, comp_eligible, notes. " +
+          "Only the fields provided are changed; omitted fields are left as-is. Pass a string/FK/" +
+          "date field as an empty string to clear it. At least one field besides id is required. " +
+          "Common use: setting is_current to false on a superseded lease once its renewal is " +
+          "entered as a new row via create_lease, or correcting a term flagged as uncertain at " +
+          "load time (e.g. a rent-roll date that didn't match its own renewal note).",
+        inputSchema: {
+          id: z.string().min(1),
+          space_id: z.string().optional(),
+          tenant_entity_id: z.string().optional(),
+          tenant_contact_id: z.string().optional(),
+          landlord_entity_id: z.string().optional(),
+          landlord_contact_id: z.string().optional(),
+          master_lease_id: z.string().optional(),
+          lease_start_date: z.string().optional(),
+          lease_end_date: z.string().optional(),
+          as_of_date: z.string().optional(),
+          base_rent_annual: z.number().optional(),
+          base_rent_monthly: z.number().optional(),
+          rent_psf: z.number().optional(),
+          cam_payment_annual: z.number().optional(),
+          cam_psf: z.number().optional(),
+          ti_allowance: z.number().optional(),
+          is_current: z.boolean().optional(),
+          comp_eligible: z.boolean().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("leases", args))
+    );
   },
   {
     // version bumped 9/3/2026 (was a static "1.0.0" since this connector was
@@ -762,7 +940,7 @@ const handler = createMcpHandler(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.1.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.2.0" },
     verboseLogs: true,
   }
 );
