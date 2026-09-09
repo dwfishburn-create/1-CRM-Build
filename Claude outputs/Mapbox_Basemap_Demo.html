@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Mapbox Basemap Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  html, body { height: 100%; margin: 0; padding: 0; }
+  #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; }
+  #badge {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    background: rgba(20,20,20,0.85);
+    color: #fff;
+    font-family: -apple-system, Helvetica, Arial, sans-serif;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="badge">DEMO — Mapbox Satellite Streets basemap (Westroads area, Omaha)</div>
+<script>
+  var map = L.map('map', { zoomControl: true }).setView([41.2565, -96.1668], 17);
+
+  L.tileLayer('https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=ppk.eyJ1IjoiZHdmaXNoYnVybiIsImEiOiJjbXR0YzJqYWgwM3Z5MndwdGd0enNidng4In0.y4zHpMia5oYTdi4asABMiA', {
+    maxZoom: 20,
+    attribution: '© Mapbox © OpenStreetMap'
+  }).addTo(map);
+</script>
+</body>
+</html>

@@ -47,6 +47,11 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // real data (The Shoppes at Lexington rent roll) loaded directly via the
 // Supabase REST API rather than through any Agent API route or MCP tool.
 // This closes that gap — see CRM_Requirements_and_Decisions_Log.md.
+//
+// lease-events/property-expenses added — Phase 2 of the Space/Lease data
+// model (migration 012), closing the two items deliberately parked at
+// Phase 1 (9/8/2026) until that core was proven against real rent-roll
+// data. Same thin-pass-through convention as everything else here.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -930,6 +935,149 @@ const handler = createMcpHandler(
       },
       async (args) => toolResult(await agentApiPatch("leases", args))
     );
+
+    // --- lease_events (Phase 2, migration 012) ---
+    server.registerTool(
+      "list_lease_events",
+      {
+        title: "List lease events",
+        description:
+          "List lease events — dated things tied to one specific lease: option/renewal " +
+          "deadlines, scheduled rent bumps, rent commencement, TI disbursement, CAM " +
+          "reconciliation, etc. Part of the Space/Lease data model, Phase 2 (migration 012). " +
+          "Most recently created first. Optionally filter by lease_id, event_type, or " +
+          "is_completed.",
+        inputSchema: {
+          ...limitArg,
+          lease_id: z.string().optional(),
+          event_type: z.string().optional(),
+          is_completed: z.boolean().optional(),
+        },
+      },
+      async ({ limit, lease_id, event_type, is_completed }) =>
+        toolResult(
+          await agentApiGet("lease-events", {
+            limit: limit?.toString(),
+            lease_id,
+            event_type,
+            is_completed: is_completed === undefined ? undefined : String(is_completed),
+          })
+        )
+    );
+    server.registerTool(
+      "create_lease_event",
+      {
+        title: "Create lease event",
+        description:
+          "Create a lease event. lease_id and event_type are required. event_type is free " +
+          "text — suggested vocabulary: Lease Expiration, Option Notice Deadline, Option " +
+          "Exercise Deadline, Renewal Rent Step, Scheduled Rent Bump, Rent Commencement, " +
+          "TI Disbursement, CAM Reconciliation, Other. event_date is optional — leave it unset " +
+          "when the exact date isn't known yet (e.g. a renewal still being negotiated) and put " +
+          "what's known in notes instead. amount is an optional dollar figure relevant to the " +
+          "event (a rent-bump increase, a TI disbursement amount, etc.). is_completed defaults " +
+          "to false.",
+        inputSchema: {
+          lease_id: z.string().min(1),
+          event_type: z.string().min(1),
+          event_date: z.string().optional(),
+          amount: z.number().optional(),
+          is_completed: z.boolean().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("lease-events", args))
+    );
+    server.registerTool(
+      "update_lease_event",
+      {
+        title: "Update lease event",
+        description:
+          "Update one or more fields on an EXISTING lease event by id — lease_id, event_type, " +
+          "event_date, amount, is_completed, notes. Only the fields provided are changed; " +
+          "omitted fields are left as-is. Pass a string/date field as an empty string to clear " +
+          "it. At least one field besides id is required. Common use: setting is_completed to " +
+          "true once a TI disbursement goes out or an option notice is actually sent, or " +
+          "correcting event_date/amount as a deal firms up.",
+        inputSchema: {
+          id: z.string().min(1),
+          lease_id: z.string().optional(),
+          event_type: z.string().optional(),
+          event_date: z.string().optional(),
+          amount: z.number().optional(),
+          is_completed: z.boolean().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("lease-events", args))
+    );
+
+    // --- property_expenses (Phase 2, migration 012) ---
+    server.registerTool(
+      "list_property_expenses",
+      {
+        title: "List property expenses",
+        description:
+          "List property expenses — CAM/tax/insurance category breakout and multi-year " +
+          "expense history for a property. Part of the Space/Lease data model, Phase 2 " +
+          "(migration 012). Most recently created first. Optionally filter by property_id, " +
+          "year, or category.",
+        inputSchema: {
+          ...limitArg,
+          property_id: z.string().optional(),
+          year: z.number().int().optional(),
+          category: z.string().optional(),
+        },
+      },
+      async ({ limit, property_id, year, category }) =>
+        toolResult(
+          await agentApiGet("property-expenses", {
+            limit: limit?.toString(),
+            property_id,
+            year: year?.toString(),
+            category,
+          })
+        )
+    );
+    server.registerTool(
+      "create_property_expense",
+      {
+        title: "Create property expense",
+        description:
+          "Create a property expense record. property_id, year, category, and amount are all " +
+          "required. category is free text (CAM, Property Tax, Insurance, etc.) — no fixed " +
+          "list. More than one row can exist for the same property/year/category (e.g. a " +
+          "correction or a supplemental invoice) — there's no uniqueness constraint.",
+        inputSchema: {
+          property_id: z.string().min(1),
+          year: z.number().int(),
+          category: z.string().min(1),
+          amount: z.number(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("property-expenses", args))
+    );
+    server.registerTool(
+      "update_property_expense",
+      {
+        title: "Update property expense",
+        description:
+          "Update one or more fields on an EXISTING property expense by id — property_id, " +
+          "year, category, amount, notes. Only the fields provided are changed; omitted fields " +
+          "are left as-is. Pass a string field as an empty string to clear it. At least one " +
+          "field besides id is required.",
+        inputSchema: {
+          id: z.string().min(1),
+          property_id: z.string().optional(),
+          year: z.number().int().optional(),
+          category: z.string().optional(),
+          amount: z.number().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("property-expenses", args))
+    );
   },
   {
     // version bumped 9/3/2026 (was a static "1.0.0" since this connector was
@@ -940,7 +1088,7 @@ const handler = createMcpHandler(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.2.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.3.0" },
     verboseLogs: true,
   }
 );
