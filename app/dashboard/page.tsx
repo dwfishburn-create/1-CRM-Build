@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { completeTaskAction } from "../tasks/actions";
+import { completeLeaseEventAction } from "./lease-event-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,34 @@ type ActivityRow = {
   activity_date: string;
   summary: string | null;
   activity_type: string;
+};
+
+// Lease Events Dashboard integration, added 9/9/2026 — surfaces the
+// Phase 2 (migration 012) lease_events table on the daily triage view, per
+// the "schema first, dashboard integration later" sequencing already used
+// for Expected Value above. No waiting-on/EV concept applies here (a lease
+// event isn't assigned to anyone or scored) — just sorted soonest-first,
+// with is_completed-false events lacking a confirmed event_date listed
+// last rather than guessed into a position.
+type EntityBrief = { name: string; trade_name: string | null };
+type PropertyBrief = { display_code: string | null; address: string };
+type SpaceBrief = {
+  suite_number: string | null;
+  property: PropertyBrief | PropertyBrief[] | null;
+};
+type LeaseBrief = {
+  display_code: string | null;
+  tenant_entity: EntityBrief | EntityBrief[] | null;
+  space: SpaceBrief | SpaceBrief[] | null;
+};
+type LeaseEventRow = {
+  id: string;
+  display_code: string | null;
+  event_type: string;
+  event_date: string | null;
+  amount: number | null;
+  notes: string | null;
+  lease: LeaseBrief | LeaseBrief[] | null;
 };
 
 function one<T>(v: T | T[] | null): T | null {
@@ -84,6 +113,30 @@ function sortForTriage(tasks: TaskRow[]): TaskRow[] {
     .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
   const rest = tasks.filter((t) => !isOverdue(t.due_date)).sort(compareNonOverdue);
   return [...overdue, ...rest];
+}
+
+// No EV-style value dimension for lease events, so a plain ascending sort on
+// event_date already puts overdue events first (their dates sort earliest),
+// then soonest-upcoming — undated events (no confirmed date yet) go last
+// since there's nothing to sort them by.
+function sortLeaseEvents(events: LeaseEventRow[]): LeaseEventRow[] {
+  const dated = events
+    .filter((e): e is LeaseEventRow & { event_date: string } => !!e.event_date)
+    .sort((a, b) => a.event_date.localeCompare(b.event_date));
+  const undated = events.filter((e) => !e.event_date);
+  return [...dated, ...undated];
+}
+
+function leaseEventContext(e: LeaseEventRow): string | null {
+  const lease = one(e.lease);
+  if (!lease) return null;
+  const tenant = one(lease.tenant_entity);
+  const space = one(lease.space);
+  const property = space ? one(space.property) : null;
+  const propertyLabel = property ? property.display_code || property.address : null;
+  const tenantLabel = tenant ? tenant.trade_name || tenant.name : null;
+  const parts = [propertyLabel, tenantLabel].filter((p): p is string => !!p);
+  return parts.length > 0 ? parts.join(" — ") : lease.display_code;
 }
 
 function linkedToLabel(t: TaskRow): { label: string; href: string } | null {
@@ -187,6 +240,64 @@ function TaskCard({
   );
 }
 
+function LeaseEventCard({ event }: { event: LeaseEventRow }) {
+  const overdue = isOverdue(event.event_date);
+  const dueToday = isDueToday(event.event_date);
+  const context = leaseEventContext(event);
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm">{event.event_type}</p>
+            {event.amount != null && (
+              <span className="shrink-0 text-xs text-gray-600 border border-gray-200 rounded px-2 py-0.5 whitespace-nowrap">
+                ${Math.round(event.amount).toLocaleString()}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            {event.display_code}
+            {event.event_date ? (
+              <>
+                {" · "}
+                <span
+                  className={
+                    overdue
+                      ? "text-red-600 font-medium"
+                      : dueToday
+                      ? "text-amber-600 font-medium"
+                      : ""
+                  }
+                >
+                  {overdue ? "Overdue " : dueToday ? "Due today " : "Due "}
+                  {event.event_date}
+                </span>
+              </>
+            ) : (
+              <> · No confirmed date yet</>
+            )}
+            {context && <> · {context}</>}
+          </p>
+          {event.notes && (
+            <p className="text-xs text-gray-400 mt-1 italic">{event.notes}</p>
+          )}
+        </div>
+        <form action={completeLeaseEventAction} className="shrink-0">
+          <input type="hidden" name="id" value={event.id} />
+          <button
+            type="submit"
+            className="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 whitespace-nowrap"
+          >
+            Mark done
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default async function DashboardPage() {
   const { data: tasks, error } = await supabase
     .from("tasks")
@@ -255,6 +366,20 @@ export default async function DashboardPage() {
   }
   const totalExpectedValue = Array.from(evByProject.values()).reduce((sum, v) => sum + v, 0);
 
+  const { data: leaseEventsData } = await supabase
+    .from("lease_events")
+    .select(
+      "id, display_code, event_type, event_date, amount, notes, " +
+        "lease:leases(display_code, " +
+        "tenant_entity:entities!tenant_entity_id(name, trade_name), " +
+        "space:spaces(suite_number, property:properties(display_code, address)))"
+    )
+    .eq("is_completed", false)
+    .returns<LeaseEventRow[]>();
+
+  const allLeaseEvents = sortLeaseEvents(leaseEventsData ?? []);
+  const leaseEventOverdueCount = allLeaseEvents.filter((e) => isOverdue(e.event_date)).length;
+
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-1">
@@ -271,7 +396,7 @@ export default async function DashboardPage() {
 
       {error && <p className="text-red-600 mb-4">Error loading dashboard: {error.message}</p>}
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 mb-8">
         <div className="border border-gray-200 rounded-lg p-4">
           <div className="text-3xl font-semibold">{allTasks.length}</div>
           <div className="text-gray-500 text-sm">Open tasks</div>
@@ -298,6 +423,16 @@ export default async function DashboardPage() {
           </div>
           <div className="text-gray-500 text-sm">Expected value in play</div>
         </div>
+        <div className="border border-gray-200 rounded-lg p-4">
+          <div
+            className={`text-3xl font-semibold ${
+              leaseEventOverdueCount > 0 ? "text-red-600" : ""
+            }`}
+          >
+            {allLeaseEvents.length}
+          </div>
+          <div className="text-gray-500 text-sm">Open lease events</div>
+        </div>
       </div>
 
       <h2 className="text-lg font-semibold mb-1">Your move ({yourMove.length})</h2>
@@ -322,7 +457,7 @@ export default async function DashboardPage() {
       </div>
 
       <h2 className="text-lg font-semibold mb-3">Waiting on someone else</h2>
-      <div className="grid gap-6">
+      <div className="grid gap-6 mb-10">
         {Array.from(waitingByContact.values()).map(({ contact, tasks: contactTasks }) => (
           <div key={contact.id}>
             <h3 className="text-sm font-medium text-gray-600 mb-2">{contactName(contact)}</h3>
@@ -341,6 +476,23 @@ export default async function DashboardPage() {
         ))}
         {waitingByContact.size === 0 && (
           <p className="text-gray-400 text-sm">Not waiting on anyone right now.</p>
+        )}
+      </div>
+
+      <h2 className="text-lg font-semibold mb-1">
+        Upcoming lease events ({allLeaseEvents.length})
+      </h2>
+      <p className="text-gray-400 text-xs mb-3">
+        Option/renewal deadlines, rent bumps, TI disbursements, and other
+        dated lease terms — sorted soonest first; events without a confirmed
+        date yet are listed last.
+      </p>
+      <div className="grid gap-2">
+        {allLeaseEvents.map((e) => (
+          <LeaseEventCard key={e.id} event={e} />
+        ))}
+        {allLeaseEvents.length === 0 && (
+          <p className="text-gray-400 text-sm">No open lease events right now.</p>
         )}
       </div>
     </div>
