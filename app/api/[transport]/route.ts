@@ -52,6 +52,12 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // model (migration 012), closing the two items deliberately parked at
 // Phase 1 (9/8/2026) until that core was proven against real rent-roll
 // data. Same thin-pass-through convention as everything else here.
+//
+// update_requirement added 9/13/2026 — the 9/3/2026 Requirements build
+// shipped create/list/link but no way to edit an existing requirement
+// afterward (flagged 9/11/2026 — see CRM_Requirements_and_Decisions_Log.md).
+// Same thin-pass-through convention, now against a new PATCH handler on
+// the existing /api/agent/requirements route.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -763,6 +769,37 @@ const handler = createMcpHandler(
       },
       async (args) => toolResult(await agentApiPost("requirement-parties", args))
     );
+    server.registerTool(
+      "update_requirement",
+      {
+        title: "Update requirement",
+        description:
+          "Update one or more fields on an EXISTING requirement by id — deal_type, " +
+          "property_type, target_location, timeline, status (active/on_hold/fulfilled/dead), " +
+          "priority, details, source (strings), and size_min, size_max, budget_min, budget_max " +
+          "(numbers). Only the fields provided are changed; omitted fields are left as-is. Pass " +
+          "a string field as an empty string to clear it. At least one field besides id is " +
+          "required. Added 9/13/2026 to close the gap where an existing requirement (e.g. " +
+          "REQ-0001, REQ-0002) had no supported way to be edited after creation — see " +
+          "CRM_Requirements_and_Decisions_Log.md.",
+        inputSchema: {
+          id: z.string().min(1),
+          deal_type: z.string().optional(),
+          property_type: z.string().optional(),
+          size_min: z.number().optional(),
+          size_max: z.number().optional(),
+          budget_min: z.number().optional(),
+          budget_max: z.number().optional(),
+          target_location: z.string().optional(),
+          timeline: z.string().optional(),
+          status: z.enum(["active", "on_hold", "fulfilled", "dead"]).optional(),
+          priority: z.string().optional(),
+          details: z.string().optional(),
+          source: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("requirements", args))
+    );
 
     // --- spaces ---
     server.registerTool(
@@ -1088,7 +1125,7 @@ const handler = createMcpHandler(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.3.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.4.0" },
     verboseLogs: true,
   }
 );

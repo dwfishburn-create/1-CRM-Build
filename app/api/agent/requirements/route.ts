@@ -90,3 +90,92 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ requirement: data }, { status: 201 });
 }
+
+// PATCH /api/agent/requirements — partial update of one or more editable
+// fields on an EXISTING requirement by id: deal_type, property_type,
+// target_location, timeline, status, priority, details, source (strings),
+// and size_min, size_max, budget_min, budget_max (numbers). Only fields
+// present in the body are written — an omitted field is left untouched. A
+// string field sent as "" clears it to null. A numeric field accepts a
+// number or numeric string; an empty value clears it to null. display_code
+// is never editable. At least one field besides id is required.
+//
+// Added 9/13/2026 to close the gap flagged 9/11/2026 — the 9/3/2026
+// Requirements build shipped create/list/link but no way to edit an
+// existing requirement (REQ-0001, REQ-0002, etc.) once created. Same
+// convention as update_property/update_contact/update_entity/update_project
+// — see CRM_Requirements_and_Decisions_Log.md.
+export async function PATCH(request: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const id = String(body.id || "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "id is required." }, { status: 400 });
+  }
+
+  const stringFields = [
+    "deal_type",
+    "property_type",
+    "target_location",
+    "timeline",
+    "status",
+    "priority",
+    "details",
+    "source",
+  ] as const;
+  const numericFields = ["size_min", "size_max", "budget_min", "budget_max"] as const;
+
+  const updatePayload: Record<string, unknown> = {};
+  for (const field of stringFields) {
+    if (field in body) {
+      const value = String(body[field] ?? "").trim();
+      updatePayload[field] = value || null;
+    }
+  }
+  for (const field of numericFields) {
+    if (field in body) {
+      const raw = body[field];
+      if (raw === null || raw === "") {
+        updatePayload[field] = null;
+      } else {
+        const num = Number(raw);
+        if (Number.isNaN(num)) {
+          return NextResponse.json(
+            { error: `${field} must be a number.` },
+            { status: 400 }
+          );
+        }
+        updatePayload[field] = num;
+      }
+    }
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    return NextResponse.json(
+      {
+        error:
+          "Provide at least one field to update: " +
+          [...stringFields, ...numericFields].join(", ") + ".",
+      },
+      { status: 400 }
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("requirements")
+    .update(updatePayload)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ requirement: data });
+}
