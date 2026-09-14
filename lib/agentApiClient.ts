@@ -12,6 +12,13 @@
 // environment and never forwarded to, or accepted from, the MCP caller.
 // The MCP route's own callers (Claude connectors) authenticate separately,
 // with their own MCP_API_TOKEN, checked in app/api/[transport]/route.ts.
+//
+// Because every MCP tool funnels through agentApiRequest below, this file is
+// also the one place that can normalize agent-supplied text for all of them
+// at once — see the decodeHtmlEntitiesDeep call in agentApiRequest and the
+// header comment in lib/sanitize.ts (9/14/2026).
+
+import { decodeHtmlEntities, decodeHtmlEntitiesDeep } from "@/lib/sanitize";
 
 // Always call the stable production domain, never the per-deployment
 // VERCEL_URL host. VERCEL_URL points at that specific deployment's own
@@ -49,17 +56,25 @@ async function agentApiRequest(
   const url = new URL(`${baseUrl()}/api/agent/${path}`);
   if (init?.query) {
     for (const [key, value] of Object.entries(init.query)) {
-      if (value !== undefined && value !== "") url.searchParams.set(key, value);
+      if (value !== undefined && value !== "") {
+        url.searchParams.set(key, decodeHtmlEntities(value));
+      }
     }
   }
+
+  // Normalize HTML entities out of every agent-supplied string before it
+  // reaches the Agent API. This is the single choke point for all MCP
+  // writes, so one call here covers every tool and every table — an agent
+  // that sends "Cushman &amp; Wakefield" stores "Cushman & Wakefield".
+  const json = init?.json ? decodeHtmlEntitiesDeep(init.json) : undefined;
 
   const res = await fetch(url.toString(), {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
-      ...(init?.json ? { "Content-Type": "application/json" } : {}),
+      ...(json ? { "Content-Type": "application/json" } : {}),
     },
-    body: init?.json ? JSON.stringify(init.json) : undefined,
+    body: json ? JSON.stringify(json) : undefined,
     // This is a server-to-server call the MCP route makes to its own
     // deployment; never cache it.
     cache: "no-store",
