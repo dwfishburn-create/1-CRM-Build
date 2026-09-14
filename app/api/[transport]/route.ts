@@ -58,6 +58,22 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // afterward (flagged 9/11/2026 — see CRM_Requirements_and_Decisions_Log.md).
 // Same thin-pass-through convention, now against a new PATCH handler on
 // the existing /api/agent/requirements route.
+//
+// get_sop_matrix / update_sop_matrix added 9/14/2026, and get_sop_checklist
+// became async in the same pass — migration 013 moved the companion-SOP
+// routing matrix out of a hardcoded copy in lib/sopMatrix and into the
+// sop_matrix table. See CRM_Requirements_and_Decisions_Log.md, 9/14/2026:
+// the old static copy was never actually WRONG, but re-syncing it meant a
+// code change plus a deploy, so it sat at 2026-08-26 while the SOP doc moved
+// to 2026-09-05 and nobody reconciled it. It also could not report a gap for
+// an SOP that had no row at all, which is how the missing Due Diligence
+// Documents SOP stayed invisible on a live BR deal. Both are now data
+// problems rather than code problems.
+//
+// get_sop_checklist stays a direct lib call rather than a pass-through,
+// which is how it has always worked — it does its own shaping and has no
+// insert/validation logic to duplicate. The two new tools follow the normal
+// pass-through convention against /api/agent/sop-matrix.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -413,18 +429,73 @@ const handler = createMcpHandler(
           "doesn't need re-deriving from the SOP doc by hand every time a new engagement is set " +
           "up. project_type accepts a single code (\"TR\") or a compound/undecided value as " +
           "stored on a live project (\"TR/BR\") — unions the checklist across every code found. " +
-          "This is a STATIC snapshot of the matrix, not a live fetch of the SOP doc — the result " +
-          "includes source_last_synced so staleness is visible; if in doubt, cross-check the SOP " +
-          "doc's own \"Last updated\" line.",
+          "Reads the sop_matrix table (migration 013, 9/14/2026), the machine-readable projection " +
+          "of Section 4 — this is no longer a hardcoded copy in code. The result includes a " +
+          "computed staleness verdict (CURRENT or STALE) comparing the SOP doc's own \"Last " +
+          "updated\" date against the date this matrix was last reconciled against it, so no hand " +
+          "cross-check is needed; if it reads STALE, re-read Section 4 and reconcile via " +
+          "update_sop_matrix before relying on the result. A status of Gap means that SOP does " +
+          "not exist yet — including ones tracked only on the SOP doc's Section 6 roadmap.",
         inputSchema: {
           project_type: z.string().min(1),
         },
       },
       async ({ project_type }) => ({
         content: [
-          { type: "text" as const, text: JSON.stringify(getSopChecklist(project_type), null, 2) },
+          {
+            type: "text" as const,
+            text: JSON.stringify(await getSopChecklist(project_type), null, 2),
+          },
         ],
       })
+    );
+    server.registerTool(
+      "get_sop_matrix",
+      {
+        title: "Get the full companion-SOP matrix",
+        description:
+          "Return the entire companion-SOP routing matrix — every SOP row across all eight " +
+          "engagement-type codes — plus its staleness verdict and the exact sop_name values " +
+          "needed to edit a cell with update_sop_matrix. Use get_sop_checklist instead when you " +
+          "only need one engagement's checklist; use this when reconciling the matrix against " +
+          "Section 4 of New_Project_Setup_and_Categorization_-_SOP.md, or to see which SOPs are " +
+          "still unwritten across the board. Optional project_type narrows it to one code.",
+        inputSchema: {
+          project_type: z.string().optional(),
+        },
+      },
+      async ({ project_type }) => toolResult(await agentApiGet("sop-matrix", { project_type }))
+    );
+    server.registerTool(
+      "update_sop_matrix",
+      {
+        title: "Update a companion-SOP matrix cell or its sync metadata",
+        description:
+          "Reconcile the sop_matrix table with Section 4 of " +
+          "New_Project_Setup_and_Categorization_-_SOP.md after an SOP is written or revised. " +
+          "This is the reason the matrix lives in the database rather than in code: a re-sync is " +
+          "a row edit, not a code change and a deploy. Two modes. (1) Update one cell: send " +
+          "sop_name AND project_type plus any of status / note / sop_filename / sort_order — " +
+          "only the fields present are written, and note: \"\" clears a note. Add mark_synced: " +
+          "true to also stamp source_last_synced with today's date, which is normally what you " +
+          "want after reconciling a change. (2) Update the metadata row: omit sop_name and send " +
+          "source_doc_last_updated (whenever the SOP doc's own \"Last updated\" line moves — " +
+          "that is what makes the staleness verdict meaningful) and/or source_last_synced. Call " +
+          "get_sop_matrix first to get exact sop_name values. Adding a brand-new SOP row is a " +
+          "POST to /api/agent/sop-matrix, not this tool.",
+        inputSchema: {
+          sop_name: z.string().optional(),
+          project_type: z.string().optional(),
+          status: z.enum(["Load", "Adapt", "Gap", "N/A"]).optional(),
+          note: z.string().optional(),
+          sop_filename: z.string().optional(),
+          sort_order: z.number().optional(),
+          mark_synced: z.boolean().optional(),
+          source_doc_last_updated: z.string().optional(),
+          source_last_synced: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("sop-matrix", args))
     );
 
     // --- property_owner links ---
@@ -1125,7 +1196,7 @@ const handler = createMcpHandler(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.4.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.5.0" },
     verboseLogs: true,
   }
 );
