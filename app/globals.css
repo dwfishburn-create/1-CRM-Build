@@ -25,3 +25,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Form controls (select/input/textarea) are pinned to an explicit light
+   background + dark text, and the same for <option> inside a <select>.
+   Native dropdown popups (like the status/contact/entity selects on
+   Requirements) don't reliably follow the page's own dark-mode CSS across
+   browsers/OS dark-mode settings, and can end up with faint, mismatched
+   text-on-background. Explicit colors here override that and keep every
+   dropdown legible regardless of system theme, independent of the
+   dark-mode variables above which still apply to the rest of the page. */
+select,
+input,
+textarea {
+  background-color: #ffffff;
+  color: #171717;
+  color-scheme: light;
+}
+
+select option {
+  background-color: #ffffff;
+  color: #171717;
+}
