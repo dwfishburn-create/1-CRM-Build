@@ -29,9 +29,9 @@ import { nextDisplayCode } from "@/lib/displayCode";
 // Follows the same GET/POST/PATCH conventions as every other core table.
 
 const SELECT_WITH_JOINS =
-  "*, property:properties(display_code, property_name, address), " +
+  "*, property:properties(display_code, address, suite_number), " +
   "contact:contacts(display_code, first_name, last_name), " +
-  "entity:entities(display_code, entity_name)";
+  "entity:entities(display_code, name)";
 
 // GET /api/agent/owner-signals?limit=50&property_id=...&entity_id=...&signal_type=...
 // List owner signals, NEWEST SIGNAL_DATE FIRST — the most recent signal for a
