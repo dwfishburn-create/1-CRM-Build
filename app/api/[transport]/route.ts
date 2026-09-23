@@ -136,7 +136,106 @@ const searchableListArgs = {
 const handler = createMcpHandler(
   (server) => {
     // --- entities ---
-    server.registerTool(
+server.registerTool(
+  "list_owner_signals",
+  {
+    title: "List owner signals",
+    description:
+      "List owner signals — dated indications of what a property's owner would accept " +
+      "(\"I'd sell at $2.4M\", \"I'd lease at $18 NNN\", \"not interested\"). Migration 015. " +
+      "Sorted NEWEST SIGNAL_DATE FIRST: the current signal for a property is the most " +
+      "recent row, and older rows are kept deliberately because the movement between an " +
+      "owner's numbers is negotiating leverage. Optionally filter by property_id, " +
+      "contact_id, entity_id or signal_type. CONFIDENTIAL — never put this in anything " +
+      "client-facing unless Dan says so.",
+    inputSchema: {
+      limit: z.number().int().min(1).max(200).optional(),
+      property_id: z.string().optional(),
+      contact_id: z.string().optional(),
+      entity_id: z.string().optional(),
+      signal_type: z.string().optional(),
+    },
+  },
+  async ({ limit, property_id, contact_id, entity_id, signal_type }) =>
+    toolResult(
+      await agentApiGet("owner-signals", {
+        limit: limit?.toString(),
+        property_id,
+        contact_id,
+        entity_id,
+        signal_type,
+      })
+    )
+);
+server.registerTool(
+  "create_owner_signal",
+  {
+    title: "Create owner signal",
+    description:
+      "Record what a property owner has indicated they'd accept. property_id and " +
+      "signal_type are required; signal_date defaults to today. " +
+      "A NEW CONVERSATION IS A NEW ROW — call this every time an owner says something " +
+      "new, even about a property that already has signals. Never update an old signal " +
+      "to a newer number; the history is the point. " +
+      "This is NOT a Requirement (requirements are demand — 'find this for me' — and " +
+      "have no property link) and NOT properties.market_status (how a property is " +
+      "marketed and what its owner would accept are independent facts). If the owner " +
+      "actually engages Dan to find a buyer, that's a project, not a signal. " +
+      "signal_type is free text — suggested: Would Sell, Would Lease, Would Sell or " +
+      "Lease, Not Interested, Other. source is free text — suggested: Direct " +
+      "Conversation, Secondhand, Inferred ('Inferred' keeps a read-between-the-lines " +
+      "read distinguishable from something the owner actually said). " +
+      "contact_id (who said it) and entity_id (the owner entity) are independent — " +
+      "either can be known without the other. indicated_rent_basis records the unit the " +
+      "rent was quoted in, because owners quote rent every possible way. " +
+      "CONFIDENTIAL by default — never client-facing unless Dan says so.",
+    inputSchema: {
+      property_id: z.string().min(1),
+      signal_type: z.string().min(1),
+      signal_date: z.string().optional(),
+      contact_id: z.string().optional(),
+      entity_id: z.string().optional(),
+      source: z.string().optional(),
+      indicated_price: z.number().optional(),
+      indicated_rent: z.number().optional(),
+      indicated_rent_basis: z.string().optional(),
+      conditions: z.string().optional(),
+      notes: z.string().optional(),
+    },
+  },
+  async (args) => toolResult(await agentApiPost("owner-signals", args))
+);
+server.registerTool(
+  "update_owner_signal",
+  {
+    title: "Update owner signal",
+    description:
+      "CORRECT an existing owner signal by id — a mistyped price, the wrong contact, a " +
+      "date off by a day. THIS IS NOT HOW YOU RECORD A CHANGED NUMBER: if the owner said " +
+      "something new, call create_owner_signal instead. Overwriting a signal destroys the " +
+      "history this table exists to keep. " +
+      "Only the fields provided are changed; omitted fields are left as-is. Pass a " +
+      "clearable string field as an empty string to clear it. property_id, signal_date " +
+      "and signal_type are required and cannot be cleared. At least one field besides id " +
+      "is required.",
+    inputSchema: {
+      id: z.string().min(1),
+      property_id: z.string().optional(),
+      signal_type: z.string().optional(),
+      signal_date: z.string().optional(),
+      contact_id: z.string().optional(),
+      entity_id: z.string().optional(),
+      source: z.string().optional(),
+      indicated_price: z.number().optional(),
+      indicated_rent: z.number().optional(),
+      indicated_rent_basis: z.string().optional(),
+      conditions: z.string().optional(),
+      notes: z.string().optional(),
+    },
+  },
+  async (args) => toolResult(await agentApiPatch("owner-signals", args))
+);    
+server.registerTool(
       "list_entities",
       {
         title: "List or search entities",
@@ -1351,7 +1450,7 @@ const handler = createMcpHandler(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.6.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.7.0" },
     verboseLogs: true,
   }
 );
