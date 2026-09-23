@@ -1,7 +1,13 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { agentApiGet, agentApiPost, agentApiPatch, type AgentApiResult } from "@/lib/agentApiClient";
+import {
+  agentApiGet,
+  agentApiPost,
+  agentApiPatch,
+  agentApiDelete,
+  type AgentApiResult,
+} from "@/lib/agentApiClient";
 import { getSopChecklist } from "@/lib/sopMatrix";
 
 // MCP connector for the CRM's Agent API — added 8/27/2026 (see
@@ -74,6 +80,28 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // which is how it has always worked — it does its own shaping and has no
 // insert/validation logic to duplicate. The two new tools follow the normal
 // pass-through convention against /api/agent/sop-matrix.
+//
+// find_contact / merge_contacts / delete_contact added 9/15/2026, and
+// list_contacts / list_entities gained search, offset and field selection in
+// the same pass — findings #1, #2 and #4 in
+// CRM_Findings_2026-09-15_BR-HyVee.md, from running the BR-Hy-Vee 108th &
+// Hwy 370 title commitment through the CRM.
+//
+// The short version of why all of this shipped together: list_contacts had
+// no lookup and returned every column of every row, so checking whether a
+// person already existed meant dumping all 64 records (over the tool
+// response cap, twice) and grepping the dump. Without that check a duplicate
+// got created — CON-0068, which was already on file as Daniel E. Moore
+// (CON-0058) — and with no merge or delete, the fix could only be a
+// permanent tombstone row. No lookup creates duplicates; no merge makes them
+// permanent. Fixing either alone leaves half the problem, so neither shipped
+// alone.
+//
+// Note on naming: find_contact is a thin wrapper over the same search
+// parameter list_contacts now accepts, and that redundancy is deliberate.
+// Tools get reached for by name. A session hunting "does this person exist"
+// will find find_contact immediately; it may never notice that list_contacts
+// grew a search parameter.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -94,17 +122,43 @@ function toolResult(result: AgentApiResult) {
 
 const limitArg = { limit: z.number().int().min(1).max(200).optional() };
 
+// Args for the searchable, paginated list endpoints (contacts, entities).
+// limit maxes at 100 rather than 200 — the server caps it there anyway as of
+// 9/15/2026, and a schema that advertises a limit the server will silently
+// reduce is worse than one that says the real number.
+const searchableListArgs = {
+  search: z.string().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
+  fields: z.string().optional(),
+};
+
 const handler = createMcpHandler(
   (server) => {
     // --- entities ---
     server.registerTool(
       "list_entities",
       {
-        title: "List entities",
-        description: "List entities (owners, tenants, companies), most recently created first.",
-        inputSchema: limitArg,
+        title: "List or search entities",
+        description:
+          "List entities (owners, tenants, companies), most recently created first, or " +
+          "search them by name. search matches legal name, trade name (d/b/a) and industry; " +
+          "multiple words are ANDed, so 'moore trust' requires both. Returns count and " +
+          "has_more alongside the rows, so an empty result means no such entity rather than " +
+          "'not on this page'. fields: 'summary' (default) or 'full' for notes and " +
+          "timestamps. ALWAYS search here before create_entity — a duplicate entity has no " +
+          "merge path and becomes permanent.",
+        inputSchema: searchableListArgs,
       },
-      async ({ limit }) => toolResult(await agentApiGet("entities", { limit: limit?.toString() }))
+      async ({ search, limit, offset, fields }) =>
+        toolResult(
+          await agentApiGet("entities", {
+            search,
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+            fields,
+          })
+        )
     );
     server.registerTool(
       "create_entity",
@@ -150,20 +204,71 @@ const handler = createMcpHandler(
     server.registerTool(
       "list_contacts",
       {
-        title: "List contacts",
-        description: "List contacts (people), most recently created first.",
-        inputSchema: limitArg,
+        title: "List or search contacts",
+        description:
+          "List contacts (people), most recently created first, or search them. search " +
+          "matches first name, last name, email and title; multiple words are ANDed, so " +
+          "'richard secor' requires both rather than matching every Richard. Set " +
+          "needs_verification: true to list only records flagged as unconfirmed. Returns " +
+          "count and has_more alongside the rows. fields: 'summary' (default) or 'full' " +
+          "for notes and timestamps. Default page is 25 rows, max 100.",
+        inputSchema: {
+          ...searchableListArgs,
+          needs_verification: z.boolean().optional(),
+        },
       },
-      async ({ limit }) => toolResult(await agentApiGet("contacts", { limit: limit?.toString() }))
+      async ({ search, limit, offset, fields, needs_verification }) =>
+        toolResult(
+          await agentApiGet("contacts", {
+            search,
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+            fields,
+            needs_verification:
+              needs_verification === undefined ? undefined : String(needs_verification),
+          })
+        )
+    );
+    server.registerTool(
+      "find_contact",
+      {
+        title: "Find a contact by name or email",
+        description:
+          "Look up whether a person is ALREADY in the CRM, by name or email address. Call " +
+          "this before create_contact, every time — it is the cheapest way to avoid a " +
+          "duplicate, and duplicates are expensive to undo. Matches first name, last name, " +
+          "email and title; multiple words are ANDed. Returns count, so count: 0 means the " +
+          "person genuinely is not on file. Same search as list_contacts, named for the " +
+          "question it answers.",
+        inputSchema: {
+          query: z.string().min(1),
+          limit: z.number().int().min(1).max(100).optional(),
+          fields: z.string().optional(),
+        },
+      },
+      async ({ query, limit, fields }) =>
+        toolResult(
+          await agentApiGet("contacts", {
+            search: query,
+            limit: limit?.toString(),
+            fields,
+          })
+        )
     );
     server.registerTool(
       "create_contact",
       {
         title: "Create contact",
         description:
-          "Create a contact (a person). Provide entity_id to link to an existing entity by id " +
-          "(preferred), or company_name to look up/create an entity by name. At least one of " +
-          "first_name/last_name is required.",
+          "Create a contact (a person). Run find_contact first — this tool does not check " +
+          "for duplicates, and a duplicate has to be cleaned up with merge_contacts " +
+          "afterward. Provide entity_id to link to an existing entity by id (preferred), or " +
+          "company_name to look up/create an entity by name. At least one of " +
+          "first_name/last_name is required. Set needs_verification: true whenever any part " +
+          "of the record is inferred rather than confirmed — a last name guessed from an " +
+          "email handle, a person not yet identified behind a shared address — and say what " +
+          "is unconfirmed in verification_note. That is a queryable flag; a sentence in " +
+          "notes is not.",
         inputSchema: {
           first_name: z.string().optional(),
           last_name: z.string().optional(),
@@ -174,6 +279,8 @@ const handler = createMcpHandler(
           entity_id: z.string().optional(),
           company_name: z.string().optional(),
           notes: z.string().optional(),
+          needs_verification: z.boolean().optional(),
+          verification_note: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("contacts", args))
@@ -184,11 +291,13 @@ const handler = createMcpHandler(
         title: "Update contact",
         description:
           "Update one or more fields on an EXISTING contact by id — first_name, last_name, " +
-          "email, phone, mobile_phone, title, entity_id, notes. Only the fields provided are " +
-          "changed; omitted fields are left as-is. Pass a field as an empty string to clear it " +
-          "(e.g. entity_id: \"\" to unlink from its entity). At least one field besides id is " +
-          "required. Added 9/1/2026 to close the gap where an existing contact's email/phone/etc. " +
-          "could only be set at creation time, not corrected or filled in afterward — see " +
+          "email, phone, mobile_phone, title, entity_id, notes, needs_verification, " +
+          "verification_note. Only the fields provided are changed; omitted fields are left " +
+          "as-is. Pass a text field as an empty string to clear it (e.g. entity_id: \"\" to " +
+          "unlink from its entity). Set needs_verification: false once a flagged record has " +
+          "been confirmed against a source. At least one field besides id is required. Added " +
+          "9/1/2026 to close the gap where an existing contact's email/phone/etc. could only " +
+          "be set at creation time, not corrected or filled in afterward — see " +
           "CRM_Requirements_and_Decisions_Log.md.",
         inputSchema: {
           id: z.string().min(1),
@@ -200,9 +309,55 @@ const handler = createMcpHandler(
           title: z.string().optional(),
           entity_id: z.string().optional(),
           notes: z.string().optional(),
+          needs_verification: z.boolean().optional(),
+          verification_note: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPatch("contacts", args))
+    );
+    server.registerTool(
+      "merge_contacts",
+      {
+        title: "Merge a duplicate contact",
+        description:
+          "Fold a duplicate contact into the record that should survive. keep_id is the " +
+          "contact that stays; merge_id is the duplicate, which is REMOVED. Every reference " +
+          "to the duplicate — project links, entity affiliations, requirement parties, " +
+          "activity log entries, tasks, tenancies and leases — is repointed onto the " +
+          "surviving record first, in one transaction. The survivor wins every populated " +
+          "field; the duplicate only fills blanks, and its notes are appended with a " +
+          "provenance line rather than discarded. This is the right tool for a duplicate, " +
+          "not delete_contact: delete destroys those links, merge keeps them. Irreversible.",
+        inputSchema: {
+          keep_id: z.string().min(1),
+          merge_id: z.string().min(1),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("contacts/merge", args))
+    );
+    server.registerTool(
+      "delete_contact",
+      {
+        title: "Delete a contact",
+        description:
+          "Permanently remove a contact. Refuses, and reports what is still attached, if " +
+          "anything references it — pass force: true to delete anyway and destroy those " +
+          "links. If the contact is a DUPLICATE, use merge_contacts instead; deleting a " +
+          "duplicate throws away its project links, activity history and entity " +
+          "affiliations rather than moving them to the surviving record. Use this only for " +
+          "a row created in error. Irreversible.",
+        inputSchema: {
+          id: z.string().min(1),
+          force: z.boolean().optional(),
+        },
+      },
+      async ({ id, force }) =>
+        toolResult(
+          await agentApiDelete("contacts", {
+            id,
+            force: force ? "true" : undefined,
+          })
+        )
     );
 
     // --- contact_entities links ---
@@ -1196,7 +1351,7 @@ const handler = createMcpHandler(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.5.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.6.0" },
     verboseLogs: true,
   }
 );

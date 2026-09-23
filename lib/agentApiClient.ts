@@ -40,7 +40,7 @@ export type AgentApiResult = {
 };
 
 async function agentApiRequest(
-  method: "GET" | "POST" | "PATCH",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   init?: { query?: Record<string, string | undefined>; json?: Record<string, unknown> }
 ): Promise<AgentApiResult> {
@@ -100,4 +100,13 @@ export function agentApiPost(path: string, json: Record<string, unknown>) {
 
 export function agentApiPatch(path: string, json: Record<string, unknown>) {
   return agentApiRequest("PATCH", path, { json });
+}
+
+// Added 9/15/2026 for delete_contact (finding #2 in
+// CRM_Findings_2026-09-15_BR-HyVee.md). Query params rather than a body on
+// purpose: a body on DELETE is legal but inconsistently handled across
+// runtimes and proxies, and the only things being sent are an id and a
+// force flag.
+export function agentApiDelete(path: string, query?: Record<string, string | undefined>) {
+  return agentApiRequest("DELETE", path, { query });
 }

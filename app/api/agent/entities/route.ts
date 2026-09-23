@@ -2,24 +2,76 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
+import { parseListParams, resolveSelect } from "@/lib/listQuery";
 
-// GET /api/agent/entities?limit=50 — list entities, most recent first.
+const ENTITY_COLUMNS = [
+  "id",
+  "display_code",
+  "name",
+  "trade_name",
+  "entity_type",
+  "industry",
+  "website",
+  "primary_contact_id",
+  "notes",
+  "created_at",
+  "updated_at",
+] as const;
+
+const ENTITY_SELECTS = {
+  summary:
+    "id, display_code, name, trade_name, entity_type, industry, website, primary_contact_id",
+  full: "*",
+};
+
+// GET /api/agent/entities — list or search entities, most recent first.
 // Entities replaces the old separate Owners + Companies tables.
+//
+// Query params: search, fields ("summary" | "full" | column list), limit
+// (default 25, max 100), offset. Returns
+// { entities, count, limit, offset, has_more }.
+//
+// Search is matched against the search_text generated column from migration
+// 014 (name + trade_name + industry), one chained ilike per whitespace-
+// separated token, so tokens are ANDed. trade_name is in there because d/b/a
+// names are frequently what a search actually knows — Hibbett Sports and
+// Dollar Tree on the Lexington rent roll are trade names, not legal ones.
+//
+// Extended 9/15/2026 alongside the contacts rewrite. Entities were on the
+// same curve as contacts in finding #1 of CRM_Findings_2026-09-15_BR-HyVee.md
+// (54 rows, same absent lookup, same unbounded response) and would have hit
+// the same wall a little later.
 export async function GET(request: NextRequest) {
-  const limitParam = request.nextUrl.searchParams.get("limit");
-  const limit = limitParam ? Math.min(Number(limitParam) || 50, 200) : 50;
+  const params = parseListParams(request.nextUrl.searchParams);
 
-  const { data, error } = await supabase
+  const resolved = resolveSelect(params.fields, ENTITY_SELECTS, ENTITY_COLUMNS);
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: 400 });
+  }
+
+  let query = supabase
     .from("entities")
-    .select("*")
+    .select(resolved.select, { count: "exact" })
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .range(params.offset, params.offset + params.limit - 1);
+
+  for (const term of params.terms) {
+    query = query.ilike("search_text", `%${term}%`);
+  }
+
+  const { data, error, count } = await query;
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ entities: data });
+  return NextResponse.json({
+    entities: data,
+    count: count ?? null,
+    limit: params.limit,
+    offset: params.offset,
+    has_more: count === null ? false : params.offset + (data?.length ?? 0) < count,
+  });
 }
 
 // POST /api/agent/entities — create an entity.
