@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createContact } from "./actions";
 
@@ -12,20 +13,19 @@ type ContactRow = {
   phone: string | null;
   mobile_phone: string | null;
   title: string | null;
-  entities: { name: string } | { name: string }[] | null;
+  entities: { id: string; name: string } | { id: string; name: string }[] | null;
 };
 
-function companyName(c: ContactRow["entities"]): string {
-  if (!c) return "—";
-  if (Array.isArray(c)) return c[0]?.name ?? "—";
-  return c.name ?? "—";
+function company(c: ContactRow["entities"]): { id: string; name: string } | null {
+  if (!c) return null;
+  return Array.isArray(c) ? c[0] ?? null : c;
 }
 
 export default async function ContactsPage() {
   const { data: contacts, error } = await supabase
     .from("contacts")
     .select(
-      "id, display_code, first_name, last_name, email, phone, mobile_phone, title, entities!entity_id(name)"
+      "id, display_code, first_name, last_name, email, phone, mobile_phone, title, entities!entity_id(id, name)"
     )
     .order("created_at", { ascending: false })
     .returns<ContactRow[]>();
@@ -112,10 +112,20 @@ export default async function ContactsPage() {
                 {c.display_code ?? "—"}
               </td>
               <td className="py-2 pr-3">
-                {[c.first_name, c.last_name].filter(Boolean).join(" ") ||
-                  "—"}
+                <Link href={`/contacts/${c.id}`} className="text-blue-600 underline">
+                  {[c.first_name, c.last_name].filter(Boolean).join(" ") ||
+                    "Unnamed contact"}
+                </Link>
               </td>
-              <td className="py-2 pr-3">{companyName(c.entities)}</td>
+              <td className="py-2 pr-3">
+                {company(c.entities) ? (
+                  <Link href={`/entities/${company(c.entities)!.id}`} className="text-blue-600 underline">
+                    {company(c.entities)!.name}
+                  </Link>
+                ) : (
+                  "—"
+                )}
+              </td>
               <td className="py-2 pr-3">{c.title ?? "—"}</td>
               <td className="py-2 pr-3">{c.email ?? "—"}</td>
               <td className="py-2 pr-3">

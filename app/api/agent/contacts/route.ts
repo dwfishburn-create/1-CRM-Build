@@ -1,3 +1,4 @@
+import { provenance } from "@/lib/provenance";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -283,6 +284,7 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase
     .from("contacts")
     .insert({
+      ...provenance(body),
       display_code,
       first_name: first_name || null,
       last_name: last_name || null,

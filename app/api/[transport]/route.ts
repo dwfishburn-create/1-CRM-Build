@@ -145,6 +145,18 @@ function toolResult(result: AgentApiResult) {
 
 const limitArg = { limit: z.number().int().min(1).max(200).optional() };
 
+// Provenance (migration 018, wired through 9/24/2026). Optional on every
+// create tool whose table carries the columns. source_record_id is the foreign
+// system's own key (e.g. a RealNex space GUID); (source_system,
+// source_record_id) is unique per table, so loading the same foreign record
+// twice is refused rather than duplicated. source_batch_id groups one load run
+// so it can be reversed.
+const provenanceArgs = {
+  source_system: z.string().optional(),
+  source_record_id: z.string().optional(),
+  source_batch_id: z.string().optional(),
+};
+
 // Args for the searchable, paginated list endpoints (contacts, entities).
 // limit maxes at 100 rather than 200 — the server caps it there anyway as of
 // 9/15/2026, and a schema that advertises a limit the server will silently
@@ -299,6 +311,7 @@ server.registerTool(
           "on the lease, the assessor's spelling, a d/b/a) — recording them here is what " +
           "stops the next session creating a duplicate under one of those names.",
         inputSchema: {
+          ...provenanceArgs,
           name: z.string().min(1),
           trade_name: z.string().optional(),
           entity_type: z.string().optional(),
@@ -533,6 +546,7 @@ server.registerTool(
           "is unconfirmed in verification_note. That is a queryable flag; a sentence in " +
           "notes is not.",
         inputSchema: {
+          ...provenanceArgs,
           first_name: z.string().optional(),
           last_name: z.string().optional(),
           email: z.string().optional(),
@@ -739,6 +753,7 @@ server.registerTool(
           "latitude/longitude: omit to auto-geocode the address (best-effort — a miss leaves " +
           "both null, it never blocks the create); pass explicit values to skip geocoding.",
         inputSchema: {
+          ...provenanceArgs,
           address: z.string().min(1),
           city: z.string().optional(),
           state: z.string().optional(),
@@ -885,6 +900,7 @@ server.registerTool(
           "Dashboard splits on exactly that. recurrence_unit/recurrence_interval make it " +
           "repeat (completing it spawns the next occurrence).",
         inputSchema: {
+          ...provenanceArgs,
           description: z.string().min(1),
           due_date: z.string().optional(),
           category: z.string().optional(),
@@ -1229,6 +1245,7 @@ server.registerTool(
           "commitment is queue work, an undated one is a remark. Pass " +
           "create_task_from_next_step: false to log the next step without queueing it.",
         inputSchema: {
+          ...provenanceArgs,
           activity_type: z.string().min(1),
           project_id: z.string().optional(),
           property_id: z.string().optional(),
@@ -1507,6 +1524,7 @@ server.registerTool(
           "property this space belongs to. space_status: occupied, vacant, or owner_occupied — " +
           "omit to default to vacant. Vacant suites should be tracked, not just occupied ones.",
         inputSchema: {
+          ...provenanceArgs,
           property_id: z.string().min(1),
           suite_number: z.string().optional(),
           building_sf: z.number().optional(),
@@ -1587,6 +1605,7 @@ server.registerTool(
           "ti_allowance are all optional numeric terms; cam_payment_annual is the tenant's billed " +
           "CAM/CAMIT reimbursement.",
         inputSchema: {
+          ...provenanceArgs,
           space_id: z.string().min(1),
           tenant_entity_id: z.string().optional(),
           tenant_contact_id: z.string().optional(),
@@ -1690,6 +1709,7 @@ server.registerTool(
           "event (a rent-bump increase, a TI disbursement amount, etc.). is_completed defaults " +
           "to false.",
         inputSchema: {
+          ...provenanceArgs,
           lease_id: z.string().min(1),
           event_type: z.string().min(1),
           event_date: z.string().optional(),
@@ -1800,7 +1820,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.10.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.11.0" },
     verboseLogs: true,
   }
 );

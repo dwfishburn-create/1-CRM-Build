@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createEntity } from "./actions";
 
@@ -146,7 +147,11 @@ export default async function EntitiesPage() {
               <td className="py-2 pr-3 text-gray-500">
                 {e.display_code ?? "—"}
               </td>
-              <td className="py-2 pr-3">{e.name}</td>
+              <td className="py-2 pr-3">
+                <Link href={`/entities/${e.id}`} className="text-blue-600 underline">
+                  {e.name}
+                </Link>
+              </td>
               <td className="py-2 pr-3">{e.entity_type ?? "—"}</td>
               <td className="py-2 pr-3">{e.industry ?? "—"}</td>
               <td className="py-2 pr-3">

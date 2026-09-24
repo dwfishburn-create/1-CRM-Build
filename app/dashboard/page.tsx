@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { contactHref, entityHref, propertyHref } from "@/lib/records";
 import { completeTaskAction } from "../tasks/actions";
 import { completeLeaseEventAction } from "./lease-event-actions";
 
@@ -44,8 +45,8 @@ type ActivityRow = {
 // event isn't assigned to anyone or scored) — just sorted soonest-first,
 // with is_completed-false events lacking a confirmed event_date listed
 // last rather than guessed into a position.
-type EntityBrief = { name: string; trade_name: string | null };
-type PropertyBrief = { display_code: string | null; address: string };
+type EntityBrief = { id: string; name: string; trade_name: string | null };
+type PropertyBrief = { id: string; display_code: string | null; address: string };
 type SpaceBrief = {
   suite_number: string | null;
   property: PropertyBrief | PropertyBrief[] | null;
@@ -127,16 +128,31 @@ function sortLeaseEvents(events: LeaseEventRow[]): LeaseEventRow[] {
   return [...dated, ...undated];
 }
 
-function leaseEventContext(e: LeaseEventRow): string | null {
+// Returns links rather than a flat string (9/24/2026) now that the property
+// and entity detail pages exist — the card is the way into the record.
+function leaseEventContext(e: LeaseEventRow): React.ReactNode {
   const lease = one(e.lease);
   if (!lease) return null;
   const tenant = one(lease.tenant_entity);
   const space = one(lease.space);
   const property = space ? one(space.property) : null;
-  const propertyLabel = property ? property.display_code || property.address : null;
-  const tenantLabel = tenant ? tenant.trade_name || tenant.name : null;
-  const parts = [propertyLabel, tenantLabel].filter((p): p is string => !!p);
-  return parts.length > 0 ? parts.join(" — ") : lease.display_code;
+  if (!tenant && !property) return lease.display_code;
+  return (
+    <>
+      {property && (
+        <Link href={propertyHref(property.id)} className="text-blue-600 underline">
+          {property.address}
+          {space?.suite_number ? ` #${space.suite_number}` : ""}
+        </Link>
+      )}
+      {property && tenant && " — "}
+      {tenant && (
+        <Link href={entityHref(tenant.id)} className="text-blue-600 underline">
+          {tenant.trade_name || tenant.name}
+        </Link>
+      )}
+    </>
+  );
 }
 
 function linkedToLabel(t: TaskRow): { label: string; href: string } | null {
@@ -153,15 +169,15 @@ function linkedToLabel(t: TaskRow): { label: string; href: string } | null {
   }
   const property = one(t.property);
   if (property) {
-    return { label: property.display_code ?? property.address, href: "/properties" };
+    return { label: property.display_code ?? property.address, href: propertyHref(property.id) };
   }
   const entity = one(t.entity);
   if (entity) {
-    return { label: entity.name, href: "/entities" };
+    return { label: entity.name, href: entityHref(entity.id) };
   }
   const contact = one(t.contact);
   if (contact) {
-    return { label: contactName(contact), href: "/contacts" };
+    return { label: contactName(contact), href: contactHref(contact.id) };
   }
   return null;
 }
@@ -371,8 +387,8 @@ export default async function DashboardPage() {
     .select(
       "id, display_code, event_type, event_date, amount, notes, " +
         "lease:leases(display_code, " +
-        "tenant_entity:entities!tenant_entity_id(name, trade_name), " +
-        "space:spaces(suite_number, property:properties(display_code, address)))"
+        "tenant_entity:entities!tenant_entity_id(id, name, trade_name), " +
+        "space:spaces(suite_number, property:properties(id, display_code, address)))"
     )
     .eq("is_completed", false)
     .returns<LeaseEventRow[]>();
@@ -460,7 +476,11 @@ export default async function DashboardPage() {
       <div className="grid gap-6 mb-10">
         {Array.from(waitingByContact.values()).map(({ contact, tasks: contactTasks }) => (
           <div key={contact.id}>
-            <h3 className="text-sm font-medium text-gray-600 mb-2">{contactName(contact)}</h3>
+            <h3 className="text-sm font-medium text-gray-600 mb-2">
+              <Link href={contactHref(contact.id)} className="text-blue-600 underline">
+                {contactName(contact)}
+              </Link>
+            </h3>
             <div className="grid gap-2">
               {contactTasks.map((t) => (
                 <TaskCard

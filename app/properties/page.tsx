@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createProperty } from "./actions";
 
@@ -172,13 +173,21 @@ export default async function PropertiesPage() {
                 {p.display_code ?? "—"}
               </td>
               <td className="py-2 pr-3">
-                {p.address}
-                {p.suite_number ? ` #${p.suite_number}` : ""}
+                <Link href={`/properties/${p.id}`} className="text-blue-600 underline">
+                  {p.address}
+                  {p.suite_number ? ` #${p.suite_number}` : ""}
+                </Link>
                 {p.city ? `, ${p.city}` : ""}
                 {p.state ? `, ${p.state}` : ""} {p.zip ?? ""}
               </td>
               <td className="py-2 pr-3 text-gray-500">
-                {p.parent_property_id ? parentLabel(p.parent) : "—"}
+                {p.parent_property_id ? (
+                  <Link href={`/properties/${p.parent_property_id}`} className="text-blue-600 underline">
+                    {parentLabel(p.parent)}
+                  </Link>
+                ) : (
+                  "—"
+                )}
               </td>
               <td className="py-2 pr-3">{p.property_type ?? "—"}</td>
               <td className="py-2 pr-3">

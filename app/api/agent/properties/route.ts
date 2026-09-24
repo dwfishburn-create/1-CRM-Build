@@ -1,3 +1,4 @@
+import { provenance } from "@/lib/provenance";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -293,7 +294,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("properties")
-    .insert(insertPayload)
+    .insert({ ...insertPayload, ...provenance(body) })
     .select()
     .single();
 

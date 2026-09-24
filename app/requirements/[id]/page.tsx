@@ -331,7 +331,7 @@ export default async function RequirementDetailPage(
             {matches.map((m) => (
               <tr key={m.id} className="border-b border-gray-100">
                 <td className="py-2 pr-3">
-                  <Link href="/properties" className="text-blue-600 underline">
+                  <Link href={`/properties/${m.id}`} className="text-blue-600 underline">
                     {m.display_code ? `${m.display_code} — ` : ""}
                     {m.address}
                     {m.suite_number ? `, Suite ${m.suite_number}` : ""}

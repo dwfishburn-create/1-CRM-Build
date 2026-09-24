@@ -379,7 +379,7 @@ export default async function ProjectDetailPage(
                 <td className="py-2 pr-3">
                   {property ? (
                     <Link
-                      href={`/properties`}
+                      href={`/properties/${property.id}`}
                       className="text-blue-600 underline"
                     >
                       {propertyLabel(property)}
@@ -559,11 +559,11 @@ export default async function ProjectDetailPage(
               <tr key={pc.id} className="border-b border-gray-100">
                 <td className="py-2 pr-3">
                   {contact ? (
-                    <Link href="/contacts" className="text-blue-600 underline">
+                    <Link href={`/contacts/${contact.id}`} className="text-blue-600 underline">
                       {contactName(contact)}
                     </Link>
                   ) : entity ? (
-                    <Link href="/entities" className="text-blue-600 underline">
+                    <Link href={`/entities/${entity.id}`} className="text-blue-600 underline">
                       {entityLabel(entity)}
                     </Link>
                   ) : (
