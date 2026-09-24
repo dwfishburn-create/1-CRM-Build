@@ -268,7 +268,8 @@ server.registerTool(
           "multiple words are ANDed, so 'moore trust' requires both. Returns count and " +
           "has_more alongside the rows, so an empty result means no such entity rather than " +
           "'not on this page'. Search also covers recorded aliases (other names the same " +
-          "company is known by), so a d/b/a or an assessor spelling finds the real record. " +
+          "company is known by), so a d/b/a or an assessor spelling finds the real record, " +
+          "and ignores punctuation and LLC/Inc/Corp/Trust (migration 017). " +
           "fields: 'summary' (default) or 'full' for notes and timestamps. Prefer find_entity " +
           "when the question is simply whether a company already exists.",
         inputSchema: searchableListArgs,
@@ -319,8 +320,10 @@ server.registerTool(
           "Look up whether a company is ALREADY in the CRM, by any name it might be under — " +
           "legal name, trade name, d/b/a, or a recorded alias. Call this before " +
           "create_entity. Matching ignores punctuation and entity suffixes, so " +
-          "'ashley lynns' finds \"Ashley Lynn's Inc.\". Returns count, so count: 0 means the " +
-          "company genuinely is not on file.",
+          "'buyers realty' finds \"Buyer's Realty, Inc.\" and 'ashley lynns' finds " +
+          "\"Ashley Lynn's Inc.\" — it runs the same normalizer the duplicate check uses " +
+          "(migration 017; before that, this tool claimed to do so and did not). Returns " +
+          "count, so count: 0 means the company genuinely is not on file.",
         inputSchema: {
           query: z.string().min(1),
           limit: z.number().int().min(1).max(100).optional(),
@@ -460,7 +463,8 @@ server.registerTool(
         title: "List or search contacts",
         description:
           "List contacts (people), most recently created first, or search them. search " +
-          "matches first name, last name, email and title; multiple words are ANDed, so " +
+          "matches first name, last name, email and title, ignoring punctuation so 'obrien' " +
+          "finds \"O'Brien\"; multiple words are ANDed, so " +
           "'richard secor' requires both rather than matching every Richard. Set " +
           "needs_verification: true to list only records flagged as unconfirmed. Returns " +
           "count and has_more alongside the rows. fields: 'summary' (default) or 'full' " +
@@ -490,7 +494,8 @@ server.registerTool(
           "Look up whether a person is ALREADY in the CRM, by name or email address. Call " +
           "this before create_contact, every time — it is the cheapest way to avoid a " +
           "duplicate, and duplicates are expensive to undo. Matches first name, last name, " +
-          "email and title; multiple words are ANDed. Returns count, so count: 0 means the " +
+          "email and title, ignoring punctuation (so 'obrien' finds \"O'Brien\"); multiple " +
+          "words are ANDed. Returns count, so count: 0 means the " +
           "person genuinely is not on file. Same search as list_contacts, named for the " +
           "question it answers.",
         inputSchema: {
@@ -671,7 +676,8 @@ server.registerTool(
         title: "List or search properties",
         description:
           "List properties/spaces, most recently created first, or search them. search " +
-          "matches address, suite, city, state, zip, parcel number and submarket; multiple " +
+          "matches address, suite, city, state, zip, parcel number and submarket, ignoring " +
+          "directional and street-type spelling (S/South, Ave/Avenue); multiple " +
           "words are ANDed, so '3606 61st' requires both. Returns count and has_more " +
           "alongside the rows. fields: 'summary' (default) or 'full'. Default page is 25 " +
           "rows, max 100. Search and paging added 9/24/2026 — this tool previously took a " +
@@ -694,9 +700,13 @@ server.registerTool(
         title: "Find a property by address or parcel",
         description:
           "Look up whether a property is ALREADY in the CRM, by address, suite, city or " +
-          "parcel number. Call this before create_property. Returns count, so count: 0 " +
-          "means it genuinely is not on file. create_property also refuses an address that " +
-          "already exists — this is for looking before writing.",
+          "parcel number. Call this before create_property. Matching runs the same address " +
+          "normalizer the duplicate check uses (migration 017), so it works in both " +
+          "directions: 'South 61st Avenue' finds a row stored as '3606 S 61st Ave Cir', and " +
+          "'W Center Rd' finds '14126 West Center Road'. A parcel number matches with or " +
+          "without dashes. Returns count, so count: 0 means it genuinely is not on file. " +
+          "create_property also refuses an address that already exists — this is for looking " +
+          "before writing.",
         inputSchema: {
           query: z.string().min(1),
           limit: z.number().int().min(1).max(100).optional(),
@@ -1699,7 +1709,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.8.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.9.0" },
     verboseLogs: true,
   }
 );

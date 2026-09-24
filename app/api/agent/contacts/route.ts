@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
-import { parseListParams, resolveSelect } from "@/lib/listQuery";
+import { parseListParams, resolveSelect, runSearch } from "@/lib/listQuery";
 import {
   findNearMatches,
   blockingMatches,
@@ -81,19 +81,69 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: resolved.error }, { status: 400 });
   }
 
+  const verificationParam = request.nextUrl.searchParams.get("needs_verification");
+  const verificationFilter =
+    verificationParam !== null && verificationParam !== ""
+      ? coerceBoolean(verificationParam)
+      : null;
+
+  // Searching goes through search_contact_ids (migration 017), which
+  // normalizes punctuation out of both the query and the name — so "obrien"
+  // finds "O'Brien". needs_verification is passed into the function rather
+  // than applied afterwards, so the count stays truthful.
+  if (params.terms.length > 0) {
+    const hits = await runSearch(
+      (fn, args) => supabase.rpc(fn, args),
+      "search_contact_ids",
+      {
+        p_q: request.nextUrl.searchParams.get("search") ?? "",
+        p_limit: params.limit,
+        p_offset: params.offset,
+        p_needs_verification: verificationFilter,
+      }
+    );
+
+    if ("error" in hits) {
+      return NextResponse.json({ error: hits.error }, { status: 500 });
+    }
+
+    if (hits.ids.length === 0) {
+      return NextResponse.json({
+        contacts: [],
+        count: hits.count,
+        limit: params.limit,
+        offset: params.offset,
+        has_more: false,
+      });
+    }
+
+    const { data: rows, error: rowError } = await supabase
+      .from("contacts")
+      .select(resolved.select)
+      .in("id", hits.ids)
+      .order("created_at", { ascending: false });
+
+    if (rowError) {
+      return NextResponse.json({ error: rowError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      contacts: rows,
+      count: hits.count,
+      limit: params.limit,
+      offset: params.offset,
+      has_more: params.offset + (rows?.length ?? 0) < hits.count,
+    });
+  }
+
   let query = supabase
     .from("contacts")
     .select(resolved.select, { count: "exact" })
     .order("created_at", { ascending: false })
     .range(params.offset, params.offset + params.limit - 1);
 
-  for (const term of params.terms) {
-    query = query.ilike("search_text", `%${term}%`);
-  }
-
-  const verificationParam = request.nextUrl.searchParams.get("needs_verification");
-  if (verificationParam !== null && verificationParam !== "") {
-    query = query.eq("needs_verification", coerceBoolean(verificationParam));
+  if (verificationFilter !== null) {
+    query = query.eq("needs_verification", verificationFilter);
   }
 
   const { data, error, count } = await query;

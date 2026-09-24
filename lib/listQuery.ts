@@ -26,6 +26,15 @@
 // such contact" and "not on this page" — which is the failure mode that made
 // the old endpoint untrustworthy for dedupe.
 
+// 9/24/2026: matching moved out of this file and into SQL — see
+// db/017_search_normalization.sql and runSearch() at the bottom.
+//
+// The chained-ilike approach described above works on raw text, so
+// find_entity("buyers realty") returned nothing for "Buyer's Realty, Inc."
+// while create_entity("Buyers Realty") correctly refused it as a duplicate.
+// Two matchers, one normalized and one not. The parsing here (limit, offset,
+// fields) is unchanged and still shared; only the WHERE moved.
+
 export const DEFAULT_LIMIT = 25;
 export const MAX_LIMIT = 100;
 
@@ -97,4 +106,36 @@ export function resolveSelect(
   // row it just read, which is the whole point of a lookup.
   const withId = requested.includes("id") ? requested : ["id", ...requested];
   return { select: withId.join(", ") };
+}
+
+/**
+ * Run a normalized search and return the matching ids for this page, plus the
+ * total match count.
+ *
+ * The caller then does its own select against those ids, keeping its field
+ * projection and its embeds — returning whole rows from the SQL function
+ * instead would have thrown away the projection added in migration 014, which
+ * exists because unbounded list responses blew the MCP tool response cap
+ * twice in two days.
+ *
+ * Ids come back ordered newest-first; the caller must re-apply that ordering,
+ * because an `in (...)` filter does not preserve the order of its argument.
+ */
+export type SearchIdsResult = { ids: string[]; count: number };
+
+export async function runSearch(
+  rpc: (name: string, args: Record<string, unknown>) => PromiseLike<{
+    data: unknown;
+    error: { message: string } | null;
+  }>,
+  fn: "search_entity_ids" | "search_property_ids" | "search_contact_ids",
+  args: Record<string, unknown>
+): Promise<SearchIdsResult | { error: string }> {
+  const { data, error } = await rpc(fn, args);
+  if (error) return { error: error.message };
+
+  const payload = (data ?? {}) as { ids?: unknown; count?: unknown };
+  const ids = Array.isArray(payload.ids) ? (payload.ids as string[]) : [];
+  const count = Number(payload.count ?? 0);
+  return { ids, count };
 }

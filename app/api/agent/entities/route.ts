@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
-import { parseListParams, resolveSelect } from "@/lib/listQuery";
+import { parseListParams, resolveSelect, runSearch } from "@/lib/listQuery";
 import {
   findNearMatches,
   blockingMatches,
@@ -64,15 +64,58 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: resolved.error }, { status: 400 });
   }
 
-  let query = supabase
+  // Searching goes through search_entity_ids (migration 017), which
+  // normalizes the query with the same function the duplicate check uses.
+  // Listing without a search keeps the plain paged select.
+  if (params.terms.length > 0) {
+    const hits = await runSearch(
+      (fn, args) => supabase.rpc(fn, args),
+      "search_entity_ids",
+      {
+        p_q: request.nextUrl.searchParams.get("search") ?? "",
+        p_limit: params.limit,
+        p_offset: params.offset,
+      }
+    );
+
+    if ("error" in hits) {
+      return NextResponse.json({ error: hits.error }, { status: 500 });
+    }
+
+    if (hits.ids.length === 0) {
+      return NextResponse.json({
+        entities: [],
+        count: hits.count,
+        limit: params.limit,
+        offset: params.offset,
+        has_more: false,
+      });
+    }
+
+    const { data: rows, error: rowError } = await supabase
+      .from("entities")
+      .select(resolved.select)
+      .in("id", hits.ids)
+      .order("created_at", { ascending: false });
+
+    if (rowError) {
+      return NextResponse.json({ error: rowError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      entities: rows,
+      count: hits.count,
+      limit: params.limit,
+      offset: params.offset,
+      has_more: params.offset + (rows?.length ?? 0) < hits.count,
+    });
+  }
+
+  const query = supabase
     .from("entities")
     .select(resolved.select, { count: "exact" })
     .order("created_at", { ascending: false })
     .range(params.offset, params.offset + params.limit - 1);
-
-  for (const term of params.terms) {
-    query = query.ilike("search_text", `%${term}%`);
-  }
 
   const { data, error, count } = await query;
 
