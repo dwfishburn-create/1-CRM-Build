@@ -102,6 +102,29 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // Tools get reached for by name. A session hunting "does this person exist"
 // will find find_contact immediately; it may never notice that list_contacts
 // grew a search parameter.
+//
+// find_entity / merge_entities / delete_entity / find_property /
+// merge_properties / delete_property / add_entity_alias /
+// list_entity_aliases / delete_entity_alias added 9/24/2026 (migration 016),
+// and list_properties gained search, offset and field selection in the same
+// pass. This is the second half of the duplicate-prevention work 014 started,
+// and the gate on the RealNex import (Dan's call, 9/22/2026).
+//
+// The audit that prompted it: 014 fixed contacts and left the other two core
+// tables where contacts had been. Entities had no alias list, no near-match
+// check and no merge — list_entities' own description admitted that a
+// duplicate entity "becomes permanent." Properties had no lookup at all.
+// And create_contact, though find_contact now sat beside it, still checked
+// nothing itself; its description told the caller to remember, which is the
+// discipline that failed four times in three days.
+//
+// So the check moved into the write path. create_contact, create_entity and
+// create_property now run a near-match query server-side and REFUSE a create
+// that looks like an existing record, returning the candidates so the caller
+// can link to it instead. allow_duplicate overrides, deliberately, for the
+// real two-people-same-name case. 26,156 contacts are waiting to import,
+// 13,642 of them in exact duplicate triples: a rule the caller has to
+// remember is a rule that breaks at that volume.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -244,9 +267,10 @@ server.registerTool(
           "search them by name. search matches legal name, trade name (d/b/a) and industry; " +
           "multiple words are ANDed, so 'moore trust' requires both. Returns count and " +
           "has_more alongside the rows, so an empty result means no such entity rather than " +
-          "'not on this page'. fields: 'summary' (default) or 'full' for notes and " +
-          "timestamps. ALWAYS search here before create_entity — a duplicate entity has no " +
-          "merge path and becomes permanent.",
+          "'not on this page'. Search also covers recorded aliases (other names the same " +
+          "company is known by), so a d/b/a or an assessor spelling finds the real record. " +
+          "fields: 'summary' (default) or 'full' for notes and timestamps. Prefer find_entity " +
+          "when the question is simply whether a company already exists.",
         inputSchema: searchableListArgs,
       },
       async ({ search, limit, offset, fields }) =>
@@ -263,17 +287,147 @@ server.registerTool(
       "create_entity",
       {
         title: "Create entity",
-        description: "Create an entity — an owner LLC, a tenant company, a corporation, etc.",
+        description:
+          "Create an entity — an owner LLC, a tenant company, a corporation, etc. REFUSES " +
+          "with a 409 if the name matches a company already on file, and returns the " +
+          "matches: comparison ignores punctuation and LLC/Inc/Corp/Trust, and covers " +
+          "recorded aliases, so 'Ashley Lynns Inc' finds \"Ashley Lynn's Inc.\" and " +
+          "'TitleCore National' finds 'TitleCore, LLC'. Use the id it hands back rather " +
+          "than creating a second record; pass allow_duplicate: true only when it really " +
+          "is a different company. aliases: other names this company is known by (the name " +
+          "on the lease, the assessor's spelling, a d/b/a) — recording them here is what " +
+          "stops the next session creating a duplicate under one of those names.",
         inputSchema: {
           name: z.string().min(1),
+          trade_name: z.string().optional(),
           entity_type: z.string().optional(),
           industry: z.string().optional(),
           website: z.string().optional(),
           primary_contact_id: z.string().optional(),
           notes: z.string().optional(),
+          aliases: z.array(z.string()).optional(),
+          allow_duplicate: z.boolean().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("entities", args))
+    );
+    server.registerTool(
+      "find_entity",
+      {
+        title: "Find a company by name",
+        description:
+          "Look up whether a company is ALREADY in the CRM, by any name it might be under — " +
+          "legal name, trade name, d/b/a, or a recorded alias. Call this before " +
+          "create_entity. Matching ignores punctuation and entity suffixes, so " +
+          "'ashley lynns' finds \"Ashley Lynn's Inc.\". Returns count, so count: 0 means the " +
+          "company genuinely is not on file.",
+        inputSchema: {
+          query: z.string().min(1),
+          limit: z.number().int().min(1).max(100).optional(),
+          fields: z.string().optional(),
+        },
+      },
+      async ({ query, limit, fields }) =>
+        toolResult(
+          await agentApiGet("entities", {
+            search: query,
+            limit: limit?.toString(),
+            fields,
+          })
+        )
+    );
+    server.registerTool(
+      "merge_entities",
+      {
+        title: "Merge a duplicate company",
+        description:
+          "Fold a duplicate entity into the record that should survive. keep_id stays; " +
+          "merge_id is REMOVED. Every reference — property ownership, tenancies, leases as " +
+          "tenant or landlord, contacts' employer, project roles, requirement parties, " +
+          "activity, tasks, owner signals — is repointed onto the survivor first, in one " +
+          "transaction. The survivor wins every populated field; the duplicate only fills " +
+          "blanks, and its notes are appended with a provenance line. The duplicate's name " +
+          "and trade name are KEPT as aliases on the survivor, so a later search for the " +
+          "merged-away name still finds the right record. Use this, not delete_entity, for " +
+          "a duplicate. Irreversible.",
+        inputSchema: {
+          keep_id: z.string().min(1),
+          merge_id: z.string().min(1),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("entities/merge", args))
+    );
+    server.registerTool(
+      "delete_entity",
+      {
+        title: "Delete an entity",
+        description:
+          "Permanently remove a company. Refuses, and reports what is still attached, if " +
+          "anything references it — pass force: true to delete anyway and destroy those " +
+          "links. If it is a DUPLICATE, use merge_entities instead. Use this only for a row " +
+          "created in error. Irreversible.",
+        inputSchema: {
+          id: z.string().min(1),
+          force: z.boolean().optional(),
+        },
+      },
+      async ({ id, force }) =>
+        toolResult(
+          await agentApiDelete("entities", {
+            id,
+            force: force ? "true" : undefined,
+          })
+        )
+    );
+    server.registerTool(
+      "add_entity_alias",
+      {
+        title: "Add an alias to a company",
+        description:
+          "Record another name a company is known by — the name on a lease, the assessor's " +
+          "spelling, a d/b/a, a former name. Aliases feed both the entity search and the " +
+          "duplicate check on create_entity, so adding one is how you stop a future session " +
+          "creating a second record under that name. source: where the alias came from " +
+          "('lease', 'assessor', 'secretary of state', free text).",
+        inputSchema: {
+          entity_id: z.string().min(1),
+          alias: z.string().min(1),
+          source: z.string().optional(),
+          note: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("entity-aliases", args))
+    );
+    server.registerTool(
+      "list_entity_aliases",
+      {
+        title: "List company aliases",
+        description:
+          "List recorded aliases, optionally for one entity (entity_id). Use it to see what " +
+          "names an entity is already findable under before adding another.",
+        inputSchema: {
+          entity_id: z.string().optional(),
+          limit: z.number().int().min(1).max(200).optional(),
+        },
+      },
+      async ({ entity_id, limit }) =>
+        toolResult(
+          await agentApiGet("entity-aliases", {
+            entity_id,
+            limit: limit?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "delete_entity_alias",
+      {
+        title: "Remove a company alias",
+        description:
+          "Remove one recorded alias by its id (from list_entity_aliases). Removing an alias " +
+          "makes that name stop matching this entity in search and in the duplicate check.",
+        inputSchema: { id: z.string().min(1) },
+      },
+      async ({ id }) => toolResult(await agentApiDelete("entity-aliases", { id }))
     );
     server.registerTool(
       "update_entity",
@@ -359,9 +513,14 @@ server.registerTool(
       {
         title: "Create contact",
         description:
-          "Create a contact (a person). Run find_contact first — this tool does not check " +
-          "for duplicates, and a duplicate has to be cleaned up with merge_contacts " +
-          "afterward. Provide entity_id to link to an existing entity by id (preferred), or " +
+          "Create a contact (a person). REFUSES with a 409 if the person looks like someone " +
+          "already on file — same email, same first and last name, or same last name with " +
+          "the same first initial (Mitch / Mitchell) — and returns the matching records. " +
+          "Use the id it hands back instead of creating a second row; pass " +
+          "allow_duplicate: true only when it genuinely is a different person with a " +
+          "similar name. find_contact is still worth running first when you want to see " +
+          "what is there before writing. " +
+          "Provide entity_id to link to an existing entity by id (preferred), or " +
           "company_name to look up/create an entity by name. At least one of " +
           "first_name/last_name is required. Set needs_verification: true whenever any part " +
           "of the record is inferred rather than confirmed — a last name guessed from an " +
@@ -380,6 +539,7 @@ server.registerTool(
           notes: z.string().optional(),
           needs_verification: z.boolean().optional(),
           verification_note: z.string().optional(),
+          allow_duplicate: z.boolean().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("contacts", args))
@@ -508,12 +668,49 @@ server.registerTool(
     server.registerTool(
       "list_properties",
       {
-        title: "List properties",
-        description: "List properties/spaces, most recently created first.",
-        inputSchema: limitArg,
+        title: "List or search properties",
+        description:
+          "List properties/spaces, most recently created first, or search them. search " +
+          "matches address, suite, city, state, zip, parcel number and submarket; multiple " +
+          "words are ANDed, so '3606 61st' requires both. Returns count and has_more " +
+          "alongside the rows. fields: 'summary' (default) or 'full'. Default page is 25 " +
+          "rows, max 100. Search and paging added 9/24/2026 — this tool previously took a " +
+          "limit and nothing else.",
+        inputSchema: searchableListArgs,
       },
-      async ({ limit }) =>
-        toolResult(await agentApiGet("properties", { limit: limit?.toString() }))
+      async ({ search, limit, offset, fields }) =>
+        toolResult(
+          await agentApiGet("properties", {
+            search,
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+            fields,
+          })
+        )
+    );
+    server.registerTool(
+      "find_property",
+      {
+        title: "Find a property by address or parcel",
+        description:
+          "Look up whether a property is ALREADY in the CRM, by address, suite, city or " +
+          "parcel number. Call this before create_property. Returns count, so count: 0 " +
+          "means it genuinely is not on file. create_property also refuses an address that " +
+          "already exists — this is for looking before writing.",
+        inputSchema: {
+          query: z.string().min(1),
+          limit: z.number().int().min(1).max(100).optional(),
+          fields: z.string().optional(),
+        },
+      },
+      async ({ query, limit, fields }) =>
+        toolResult(
+          await agentApiGet("properties", {
+            search: query,
+            limit: limit?.toString(),
+            fields,
+          })
+        )
     );
     server.registerTool(
       "create_property",
@@ -521,6 +718,13 @@ server.registerTool(
         title: "Create property",
         description:
           "Create a property, or a leasable space/suite inside one (set parent_property_id). " +
+          "REFUSES with a 409 if the address or parcel number matches a property already on " +
+          "file, and returns the matches: comparison ignores punctuation, directionals and " +
+          "street-suffix words, so '3606 South 61st Avenue Circle' finds '3606 S 61st Ave " +
+          "Cir'. Use the id it hands back rather than creating a second record; pass " +
+          "allow_duplicate: true only when it really is a separate property. The check is " +
+          "skipped when parent_property_id is set, since a suite is supposed to share its " +
+          "building's address. " +
           "market_status/research_status: omit to use the DB default (off_market/unresearched). " +
           "latitude/longitude: omit to auto-geocode the address (best-effort — a miss leaves " +
           "both null, it never blocks the create); pass explicit values to skip geocoding.",
@@ -541,6 +745,7 @@ server.registerTool(
           longitude: z.number().optional(),
           priority: z.string().optional(),
           notes: z.string().optional(),
+          allow_duplicate: z.boolean().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("properties", args))
@@ -602,6 +807,50 @@ server.registerTool(
         },
       },
       async (args) => toolResult(await agentApiPatch("properties", args))
+    );
+    server.registerTool(
+      "merge_properties",
+      {
+        title: "Merge a duplicate property",
+        description:
+          "Fold a duplicate property into the record that should survive. keep_id stays; " +
+          "merge_id is REMOVED. Spaces, leases, ownership and tenancy rows, project " +
+          "candidates, comps, expenses, owner signals, activity, tasks and child " +
+          "properties are all repointed onto the survivor first, in one transaction. The " +
+          "survivor keeps its own address and wins every populated field; the duplicate " +
+          "fills blanks (this is how a row created from a lease, with a parcel number, " +
+          "improves one created from a drive-by). Always prefer this to delete_property " +
+          "for a duplicate: deleting a property CASCADES to its spaces, their leases and " +
+          "those leases' events. Irreversible.",
+        inputSchema: {
+          keep_id: z.string().min(1),
+          merge_id: z.string().min(1),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("properties/merge", args))
+    );
+    server.registerTool(
+      "delete_property",
+      {
+        title: "Delete a property",
+        description:
+          "Permanently remove a property. Refuses, and reports what is attached, if " +
+          "anything references it — force: true overrides that. It will NOT delete a " +
+          "property whose spaces carry leases at all, force or not, because that would " +
+          "destroy executed-lease history and critical dates; merge_properties moves them " +
+          "instead. Use this only for a row created in error. Irreversible.",
+        inputSchema: {
+          id: z.string().min(1),
+          force: z.boolean().optional(),
+        },
+      },
+      async ({ id, force }) =>
+        toolResult(
+          await agentApiDelete("properties", {
+            id,
+            force: force ? "true" : undefined,
+          })
+        )
     );
 
     // --- projects ---
@@ -1450,7 +1699,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.7.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.8.0" },
     verboseLogs: true,
   }
 );

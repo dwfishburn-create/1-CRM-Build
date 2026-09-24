@@ -3,6 +3,11 @@ import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
 import { parseListParams, resolveSelect } from "@/lib/listQuery";
+import {
+  findNearMatches,
+  blockingMatches,
+  duplicateBlockResponse,
+} from "@/lib/nearMatch";
 
 // Columns a caller may name explicitly in ?fields=. search_text is
 // deliberately absent — it is a derived concatenation with no value to a
@@ -128,6 +133,15 @@ export async function GET(request: NextRequest) {
 // record built from an inference — a last name guessed off an email handle,
 // a person not yet identified behind a shared address — is now flagged as
 // such in a queryable column instead of a sentence buried in notes.
+//
+// Duplicate check added 9/24/2026 (migration 016). Before inserting, this
+// route runs find_similar_contacts and REFUSES with 409 if anything scores at
+// or above the block threshold — same email, same first+last name, or same
+// last name with the same first initial (the Mitch/Mitchell case that produced
+// CON-0074). The response carries the candidates so the caller can link to the
+// existing record instead. allow_duplicate: true overrides, for the genuine
+// two-people-same-name case. See lib/nearMatch.ts for why this blocks rather
+// than warns.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -154,6 +168,32 @@ export async function POST(request: NextRequest) {
       { error: "First or last name is required." },
       { status: 400 }
     );
+  }
+
+  const allow_duplicate = coerceBoolean(body.allow_duplicate);
+  let possible_duplicates: unknown[] = [];
+  let duplicate_check: string | null = null;
+
+  const near = await findNearMatches("find_similar_contacts", {
+    p_first: first_name || null,
+    p_last: last_name || null,
+    p_email: email,
+    p_limit: 5,
+  });
+
+  if (!near.ok) {
+    // A broken duplicate check must not take the create path down with it —
+    // see lib/nearMatch.ts. Say so in the response instead of failing silently.
+    duplicate_check = `not run: ${near.error}`;
+  } else {
+    possible_duplicates = near.candidates;
+    const blocking = blockingMatches(near.candidates);
+    if (blocking.length > 0 && !allow_duplicate) {
+      return duplicateBlockResponse("contact", blocking);
+    }
+    if (blocking.length > 0) {
+      duplicate_check = "overridden by allow_duplicate";
+    }
   }
 
   let entity_id: string | null = null;
@@ -212,7 +252,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ contact: data }, { status: 201 });
+  // Near misses below the block threshold are still reported on the way out —
+  // the caller should see "there is a Mike Shindler on file" even when it let
+  // a Michael Shindler through.
+  return NextResponse.json(
+    {
+      contact: data,
+      ...(possible_duplicates.length > 0 ? { possible_duplicates } : {}),
+      ...(duplicate_check ? { duplicate_check } : {}),
+    },
+    { status: 201 }
+  );
 }
 
 // PATCH /api/agent/contacts — update one or more fields on an existing
