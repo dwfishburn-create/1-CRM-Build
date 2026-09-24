@@ -46,6 +46,27 @@ export async function GET(request: NextRequest) {
 // All four link fields are optional and independent (mirrors the
 // entity-optional design used for tasks) — an activity can be logged against
 // any combination of project/property/contact/entity, or none at all.
+//
+// 9/24/2026 — a logged next step with a DUE DATE now also creates a task.
+//
+// Why: the Dashboard's "Your move" column reads the `tasks` table, while this
+// route was writing follow-ups into activity_log.next_step. Two competing
+// answers to "what's next", and only one of them reached the screen Dan
+// actually looks at. LOG-0173 ("call Kevin Higgins, due 9/25") was invisible
+// on the Dashboard the morning it was created.
+//
+// The rule (Dan's call, 9/24/2026): the activity is the HISTORY of what was
+// agreed; the task is the QUEUE. Both a next_step AND a next_step_due_date
+// means a commitment with a date on it, and that becomes a task. A next step
+// with no date stays a note — "ask about the adjacent bay sometime" is not a
+// queue item, and treating it as one is how a dashboard fills with things
+// nobody ever promised.
+//
+// create_task_from_next_step: false opts out for a single call.
+//
+// If the task insert fails the activity is still returned — the log entry is
+// the record of what happened and must not be lost because a convenience
+// failed. The response says so in task_warning rather than failing silently.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -106,5 +127,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ activity: data }, { status: 201 });
+  // A dated next step becomes a task, so it lands on the Dashboard.
+  const wantsTask =
+    "create_task_from_next_step" in body
+      ? Boolean(body.create_task_from_next_step)
+      : true;
+
+  if (!wantsTask || !next_step || !next_step_due_date) {
+    return NextResponse.json({ activity: data }, { status: 201 });
+  }
+
+  const taskCode = await nextDisplayCode("tasks", "TASK");
+  const { data: task, error: taskError } = await supabase
+    .from("tasks")
+    .insert({
+      display_code: taskCode,
+      description: next_step,
+      due_date: next_step_due_date,
+      status: "open",
+      category: activity_type,
+      project_id,
+      property_id,
+      contact_id,
+      entity_id,
+      source_activity_id: data.id,
+    })
+    .select()
+    .single();
+
+  if (taskError) {
+    return NextResponse.json(
+      {
+        activity: data,
+        task_warning:
+          "Activity saved, but the follow-up task was not created: " +
+          taskError.message +
+          " — this next step will NOT appear on the Dashboard.",
+      },
+      { status: 201 }
+    );
+  }
+
+  return NextResponse.json({ activity: data, task }, { status: 201 });
 }

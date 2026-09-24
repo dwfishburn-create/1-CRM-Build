@@ -863,6 +863,91 @@ server.registerTool(
         )
     );
 
+    // --- tasks ---
+    //
+    // Added 9/24/2026. The tasks table and its /api/agent/tasks route have
+    // existed since 8/25/2026, but were never wrapped — so the Dashboard's
+    // primary column, "Your move", was fed by a table no Claude session could
+    // write to. Everything Dan was told to do landed either in a spreadsheet
+    // or in activity_log.next_step, neither of which that screen reads.
+    server.registerTool(
+      "create_task",
+      {
+        title: "Create task",
+        description:
+          "Put something on Dan's plate. Tasks are what the Dashboard's \"Your move\" column " +
+          "reads, so a follow-up that is not a task is a follow-up Dan will not see. Most " +
+          "follow-ups should NOT be created here directly: log_activity with a next_step and " +
+          "a next_step_due_date creates the task automatically AND keeps the history of what " +
+          "was agreed. Use this tool for work that is not the consequence of a logged " +
+          "interaction — a license renewal, a recurring admin item, a reminder to research " +
+          "something. Set waiting_on_contact_id when the ball is in someone else's court; the " +
+          "Dashboard splits on exactly that. recurrence_unit/recurrence_interval make it " +
+          "repeat (completing it spawns the next occurrence).",
+        inputSchema: {
+          description: z.string().min(1),
+          due_date: z.string().optional(),
+          category: z.string().optional(),
+          project_id: z.string().optional(),
+          property_id: z.string().optional(),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          requirement_id: z.string().optional(),
+          waiting_on_contact_id: z.string().optional(),
+          recurrence_unit: z.enum(["none", "day", "week", "month", "year"]).optional(),
+          recurrence_interval: z.number().int().min(1).optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("tasks", args))
+    );
+    server.registerTool(
+      "list_tasks",
+      {
+        title: "List tasks",
+        description:
+          "List tasks, most recently created first. Filter by status (\"open\", \"done\", " +
+          "\"cancelled\"), or by any of project_id / property_id / contact_id / entity_id / " +
+          "requirement_id / waiting_on_contact_id. status: \"open\" is what the Dashboard " +
+          "shows. Use this to answer \"what is on my plate\" and to find a task's id before " +
+          "completing it.",
+        inputSchema: {
+          status: z.string().optional(),
+          project_id: z.string().optional(),
+          property_id: z.string().optional(),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          requirement_id: z.string().optional(),
+          waiting_on_contact_id: z.string().optional(),
+          limit: z.number().int().min(1).max(200).optional(),
+        },
+      },
+      async ({ limit, ...filters }) =>
+        toolResult(
+          await agentApiGet("tasks", {
+            ...Object.fromEntries(
+              Object.entries(filters).map(([k, v]) => [k, v as string | undefined])
+            ),
+            limit: limit?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "complete_task",
+      {
+        title: "Complete or cancel a task",
+        description:
+          "Close a task. action: \"complete\" for work that got done — a recurring task " +
+          "spawns its next occurrence automatically. action: \"cancel\" for work that is no " +
+          "longer wanted; it keeps the row and its history rather than deleting it, so the " +
+          "record of what was once planned survives. Get the id from list_tasks.",
+        inputSchema: {
+          id: z.string().min(1),
+          action: z.enum(["complete", "cancel"]),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("tasks", args))
+    );
+
     // --- projects ---
     server.registerTool(
       "list_projects",
@@ -1137,7 +1222,12 @@ server.registerTool(
         title: "Log activity",
         description:
           "Log an activity (call/email/meeting/research/inquiry/etc. — free text, no fixed " +
-          "list). All four link fields are optional and independent.",
+          "list). All four link fields are optional and independent. IMPORTANT: giving both " +
+          "next_step AND next_step_due_date also creates a task, which is what puts the " +
+          "follow-up on the Dashboard's \"Your move\" column — a next step without a due date " +
+          "stays a note and will NOT appear there. That is the intended distinction: a dated " +
+          "commitment is queue work, an undated one is a remark. Pass " +
+          "create_task_from_next_step: false to log the next step without queueing it.",
         inputSchema: {
           activity_type: z.string().min(1),
           project_id: z.string().optional(),
@@ -1149,6 +1239,7 @@ server.registerTool(
           summary: z.string().optional(),
           next_step: z.string().optional(),
           next_step_due_date: z.string().optional(),
+          create_task_from_next_step: z.boolean().optional(),
           client_visible: z.boolean().optional(),
           source: z.string().optional(),
         },
@@ -1709,7 +1800,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.9.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.10.0" },
     verboseLogs: true,
   }
 );
