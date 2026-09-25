@@ -18,6 +18,8 @@ import {
   type LeaseLite,
   type TaskLite,
 } from "@/app/_components/RecordParts";
+import { LogActivityForm } from "@/app/_components/LogActivityForm";
+import { contactOptions } from "@/lib/contactOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +164,9 @@ export default async function ContactDetailPage(props: PageProps<"/contacts/[id]
 
   if (!contact) notFound();
 
+  const allContacts = await contactOptions();
+  const here = `/contacts/${id}`;
+
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(" ") || "Unnamed contact";
   const company = one(contact.entity);
   const otherAffiliations = (affiliations ?? []).filter((a) => one(a.entity)?.id !== company?.id);
@@ -217,8 +222,20 @@ export default async function ContactDetailPage(props: PageProps<"/contacts/[id]
 
       <NotesBox text={contact.notes} />
 
+      <LogActivityForm
+        returnPath={here}
+        contactId={contact.id}
+        entityId={company?.id}
+        projects={(projectLinks ?? [])
+          .map((pl) => one(pl.project))
+          .filter((p): p is NonNullable<typeof p> => !!p)
+          .map((p) => ({ id: p.id, label: `${p.project_code} — ${p.client_name}` }))}
+        preferredContacts={allContacts.filter((c) => c.id === contact.id)}
+        allContacts={allContacts}
+      />
+
       <Section title="Open tasks" count={tasks?.length ?? 0}>
-        <TaskList tasks={tasks ?? []} />
+        <TaskList tasks={tasks ?? []} returnPath={here} contacts={allContacts} />
       </Section>
 
       <Section title="Other companies" count={otherAffiliations.length}>

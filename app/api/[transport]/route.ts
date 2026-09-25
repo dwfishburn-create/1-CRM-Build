@@ -963,6 +963,54 @@ server.registerTool(
       },
       async (args) => toolResult(await agentApiPatch("tasks", args))
     );
+    server.registerTool(
+      "update_task",
+      {
+        title: "Edit or re-date a task",
+        description:
+          "Change an OPEN task in place — it keeps its display code and its link to the " +
+          "activity it came from, which cancelling and re-creating would lose. Only the " +
+          "fields provided change; pass an empty string to clear one. The common moves: " +
+          "re-date (due_date), hand the ball to someone (waiting_on_contact_id = their " +
+          "contact id, which moves it to the Dashboard's Waiting On column), take it back " +
+          "(waiting_on_contact_id: \"\"), or reword it. bump_days pushes the due date out " +
+          "by that many days from the current due date, or from today if the task is " +
+          "overdue; use it instead of due_date, not with it. Re-dating a task does not " +
+          "rewrite the source activity's next_step_due_date — the activity records what " +
+          "was agreed, the task is the live queue. Closed tasks can't be edited. Use " +
+          "complete_task to finish or cancel one.",
+        inputSchema: {
+          id: z.string().min(1),
+          description: z.string().optional(),
+          due_date: z.string().optional(),
+          bump_days: z.number().int().min(1).max(365).optional(),
+          category: z.string().optional(),
+          waiting_on_contact_id: z.string().optional(),
+          project_id: z.string().optional(),
+          property_id: z.string().optional(),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          requirement_id: z.string().optional(),
+        },
+      },
+      async ({ bump_days, ...fields }) => {
+        if (bump_days !== undefined) {
+          if (fields.due_date !== undefined) {
+            return toolResult({
+              ok: false,
+              status: 400,
+              body: { error: "Pass bump_days or due_date, not both." },
+            });
+          }
+          const { id, ...rest } = fields;
+          const bumped = await agentApiPatch("tasks", { id, action: "bump", days: bump_days });
+          // Apply any other field changes in the same call, but only if the bump worked.
+          if (!bumped.ok || Object.keys(rest).length === 0) return toolResult(bumped);
+          return toolResult(await agentApiPatch("tasks", { id, action: "update", ...rest }));
+        }
+        return toolResult(await agentApiPatch("tasks", { ...fields, action: "update" }));
+      }
+    );
 
     // --- projects ---
     server.registerTool(
@@ -1242,7 +1290,9 @@ server.registerTool(
           "next_step AND next_step_due_date also creates a task, which is what puts the " +
           "follow-up on the Dashboard's \"Your move\" column — a next step without a due date " +
           "stays a note and will NOT appear there. That is the intended distinction: a dated " +
-          "commitment is queue work, an undated one is a remark. Pass " +
+          "commitment is queue work, an undated one is a remark. Set waiting_on_contact_id " +
+          "when the ball is in someone else's court — the task then lands in the Dashboard's " +
+          "Waiting On column instead of Your Move (added 9/24/2026). Pass " +
           "create_task_from_next_step: false to log the next step without queueing it.",
         inputSchema: {
           ...provenanceArgs,
@@ -1256,6 +1306,7 @@ server.registerTool(
           summary: z.string().optional(),
           next_step: z.string().optional(),
           next_step_due_date: z.string().optional(),
+          waiting_on_contact_id: z.string().optional(),
           create_task_from_next_step: z.boolean().optional(),
           client_visible: z.boolean().optional(),
           source: z.string().optional(),
@@ -1820,7 +1871,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.11.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.12.0" },
     verboseLogs: true,
   }
 );

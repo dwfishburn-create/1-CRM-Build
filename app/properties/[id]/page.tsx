@@ -28,6 +28,8 @@ import {
   type LeaseLite,
   type TaskLite,
 } from "@/app/_components/RecordParts";
+import { LogActivityForm } from "@/app/_components/LogActivityForm";
+import { contactOptions } from "@/lib/contactOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -228,6 +230,9 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
   if (leaseError) loadErrors.push(`leases: ${leaseError.message}`);
 
   const parent = one(property.parent);
+
+  const allContacts = await contactOptions();
+  const here = `/properties/${id}`;
   const cityLine = [property.city, property.state, property.zip].filter(Boolean).join(", ");
 
   return (
@@ -274,8 +279,18 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
 
       <NotesBox text={property.notes} />
 
+      <LogActivityForm
+        returnPath={here}
+        propertyId={property.id}
+        projects={(candidates ?? [])
+          .map((c) => one(c.project))
+          .filter((p): p is NonNullable<typeof p> => !!p)
+          .map((p) => ({ id: p.id, label: `${p.project_code} — ${p.client_name}` }))}
+        allContacts={allContacts}
+      />
+
       <Section title="Open tasks" count={tasks?.length ?? 0}>
-        <TaskList tasks={tasks ?? []} />
+        <TaskList tasks={tasks ?? []} returnPath={here} contacts={allContacts} />
       </Section>
 
       <Section title="Ownership" count={owners?.length ?? 0}>

@@ -2,7 +2,7 @@ import { provenance } from "@/lib/provenance";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { nextDisplayCode } from "@/lib/displayCode";
+import { logActivity } from "@/lib/activity";
 
 // GET /api/agent/activity-log?limit=50&project_id=&property_id=&entity_id=&contact_id=
 // List activity log entries, most recent by activity_date first. Any of the
@@ -38,36 +38,20 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/agent/activity-log — log an activity (call / email / meeting /
-// tour / postcard_sent / qr_scan / note / document / etc. — activity_type is
-// free text, same as the schema's own comment: no fixed enum, values are a
-// convention, not a DB constraint).
+// tour / note / etc. — activity_type is free text, a convention rather than a
+// DB constraint).
 // Body: { activity_type, project_id?, property_id?, contact_id?, entity_id?,
 //         activity_date?, performed_by?, summary?, next_step?,
-//         next_step_due_date?, client_visible?, source? }
-// All four link fields are optional and independent (mirrors the
-// entity-optional design used for tasks) — an activity can be logged against
-// any combination of project/property/contact/entity, or none at all.
+//         next_step_due_date?, waiting_on_contact_id?, client_visible?,
+//         source?, create_task_from_next_step?, source_system?,
+//         source_record_id?, source_batch_id? }
 //
-// 9/24/2026 — a logged next step with a DUE DATE now also creates a task.
-//
-// Why: the Dashboard's "Your move" column reads the `tasks` table, while this
-// route was writing follow-ups into activity_log.next_step. Two competing
-// answers to "what's next", and only one of them reached the screen Dan
-// actually looks at. LOG-0173 ("call Kevin Higgins, due 9/25") was invisible
-// on the Dashboard the morning it was created.
-//
-// The rule (Dan's call, 9/24/2026): the activity is the HISTORY of what was
-// agreed; the task is the QUEUE. Both a next_step AND a next_step_due_date
-// means a commitment with a date on it, and that becomes a task. A next step
-// with no date stays a note — "ask about the adjacent bay sometime" is not a
-// queue item, and treating it as one is how a dashboard fills with things
-// nobody ever promised.
-//
-// create_task_from_next_step: false opts out for a single call.
-//
-// If the task insert fails the activity is still returned — the log entry is
-// the record of what happened and must not be lost because a convenience
-// failed. The response says so in task_warning rather than failing silently.
+// A next step WITH a due date also creates a task (migration 018, Dan's call
+// 9/24/2026 — the activity is the history, the task is the queue). As of the
+// 9/24/2026 fifth pass, waiting_on_contact_id puts that task straight into
+// the Dashboard's Waiting On column. The logic lives in lib/activity.ts and
+// is shared with the web form on the record pages, so the two paths cannot
+// drift.
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -76,98 +60,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const activity_type = String(body.activity_type || "").trim();
-  if (!activity_type) {
-    return NextResponse.json(
-      { error: "activity_type is required." },
-      { status: 400 }
-    );
+  if (!String(body.activity_type || "").trim()) {
+    return NextResponse.json({ error: "activity_type is required." }, { status: 400 });
   }
 
-  const project_id = String(body.project_id || "").trim() || null;
-  const property_id = String(body.property_id || "").trim() || null;
-  const contact_id = String(body.contact_id || "").trim() || null;
-  const entity_id = String(body.entity_id || "").trim() || null;
-  const activity_date = body.activity_date ? String(body.activity_date) : null;
-  const performed_by = String(body.performed_by || "").trim() || null;
-  const summary = String(body.summary || "").trim() || null;
-  const next_step = String(body.next_step || "").trim() || null;
-  const next_step_due_date = body.next_step_due_date
-    ? String(body.next_step_due_date)
-    : null;
-  const client_visible = Boolean(body.client_visible);
-  const source = String(body.source || "").trim() || "agent_api";
-
-  const display_code = await nextDisplayCode("activity_log", "LOG");
-
-  const insertRow: Record<string, unknown> = {
-    display_code,
-    activity_type,
-    project_id,
-    property_id,
-    contact_id,
-    entity_id,
-    performed_by,
-    summary,
-    next_step,
-    next_step_due_date,
-    client_visible,
-    source,
-  };
-  // Only set activity_date when the caller supplied one — otherwise let the
-  // column's own default (now()) apply, same pattern as the rest of this API.
-  if (activity_date) insertRow.activity_date = activity_date;
-
-  const { data, error } = await supabase
-    .from("activity_log")
-    .insert({ ...insertRow, ...provenance(body) })
-    .select()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    const result = await logActivity({
+      activity_type: String(body.activity_type),
+      project_id: body.project_id as string | undefined,
+      property_id: body.property_id as string | undefined,
+      contact_id: body.contact_id as string | undefined,
+      entity_id: body.entity_id as string | undefined,
+      activity_date: body.activity_date as string | undefined,
+      performed_by: body.performed_by as string | undefined,
+      summary: body.summary as string | undefined,
+      next_step: body.next_step as string | undefined,
+      next_step_due_date: body.next_step_due_date as string | undefined,
+      waiting_on_contact_id: body.waiting_on_contact_id as string | undefined,
+      client_visible: Boolean(body.client_visible),
+      source: (body.source as string | undefined) ?? "agent_api",
+      create_task_from_next_step:
+        "create_task_from_next_step" in body
+          ? Boolean(body.create_task_from_next_step)
+          : true,
+      provenance: provenance(body),
+    });
+    return NextResponse.json(result, { status: 201 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Insert failed.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  // A dated next step becomes a task, so it lands on the Dashboard.
-  const wantsTask =
-    "create_task_from_next_step" in body
-      ? Boolean(body.create_task_from_next_step)
-      : true;
-
-  if (!wantsTask || !next_step || !next_step_due_date) {
-    return NextResponse.json({ activity: data }, { status: 201 });
-  }
-
-  const taskCode = await nextDisplayCode("tasks", "TASK");
-  const { data: task, error: taskError } = await supabase
-    .from("tasks")
-    .insert({
-      display_code: taskCode,
-      description: next_step,
-      due_date: next_step_due_date,
-      status: "open",
-      category: activity_type,
-      project_id,
-      property_id,
-      contact_id,
-      entity_id,
-      source_activity_id: data.id,
-    })
-    .select()
-    .single();
-
-  if (taskError) {
-    return NextResponse.json(
-      {
-        activity: data,
-        task_warning:
-          "Activity saved, but the follow-up task was not created: " +
-          taskError.message +
-          " — this next step will NOT appear on the Dashboard.",
-      },
-      { status: 201 }
-    );
-  }
-
-  return NextResponse.json({ activity: data, task }, { status: 201 });
 }

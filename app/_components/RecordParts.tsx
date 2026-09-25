@@ -12,6 +12,13 @@ import {
   psf,
   sf,
 } from "@/lib/records";
+import type { Option } from "@/lib/contactOptions";
+import {
+  bumpTaskAction,
+  cancelTaskFromRecord,
+  completeTaskFromRecord,
+  updateTaskAction,
+} from "./recordActions";
 
 // Presentational building blocks shared by the Contact, Property and Entity
 // detail pages (9/24/2026). Server components only — no client state — so they
@@ -89,33 +96,116 @@ export type TaskLite = {
   waiting_on_contact?: Named | Named[] | null;
 };
 
-export function TaskList({ tasks }: { tasks: TaskLite[] }) {
+// Open tasks, with inline edit / re-date / done / cancel (9/24/2026, fifth
+// pass). Pass returnPath to turn the controls on; without it the list is
+// read-only, as before. No client JavaScript — each control is its own form
+// posting to a server action in ./recordActions.
+export function TaskList({
+  tasks,
+  returnPath,
+  contacts = [],
+}: {
+  tasks: TaskLite[];
+  returnPath?: string;
+  contacts?: Option[];
+}) {
   if (tasks.length === 0) return <Empty>No open tasks.</Empty>;
+  const input = "border border-gray-300 rounded px-2 py-1 text-sm";
+  const btn = "border border-gray-300 rounded px-2 py-0.5 text-xs hover:bg-gray-50";
   return (
     <div className="grid gap-2">
       {tasks.map((t) => {
         const waiting = one(t.waiting_on_contact ?? null);
+        const hidden = (
+          <>
+            <input type="hidden" name="id" value={t.id} />
+            {returnPath && <input type="hidden" name="return_path" value={returnPath} />}
+          </>
+        );
         return (
           <div key={t.id} className="border border-gray-200 rounded-lg p-3">
-            <p className="text-sm">{t.description}</p>
-            <p className="text-xs text-gray-400 mt-1">
-              {t.display_code}
-              {t.category && <> · {t.category}</>}
-              {t.due_date && (
-                <>
-                  {" · "}
-                  <span className={dueClass(t.due_date)}>Due {t.due_date}</span>
-                </>
+            <div className="flex items-start gap-3">
+              <div className="flex-1">
+                <p className="text-sm">{t.description}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {t.display_code}
+                  {t.category && <> · {t.category}</>}
+                  {t.due_date && (
+                    <>
+                      {" · "}
+                      <span className={dueClass(t.due_date)}>Due {t.due_date}</span>
+                    </>
+                  )}
+                  {waiting && (
+                    <>
+                      {" · waiting on "}
+                      <Link href={contactHref(waiting.id)} className="text-blue-600 underline">
+                        {personName(waiting)}
+                      </Link>
+                    </>
+                  )}
+                </p>
+              </div>
+              {returnPath && (
+                <div className="flex gap-1 shrink-0">
+                  <form action={completeTaskFromRecord}>
+                    {hidden}
+                    <button className={btn} title="Mark done">Done</button>
+                  </form>
+                  <form action={bumpTaskAction}>
+                    {hidden}
+                    <input type="hidden" name="days" value="1" />
+                    <button className={btn} title="Push out one day">+1d</button>
+                  </form>
+                  <form action={bumpTaskAction}>
+                    {hidden}
+                    <input type="hidden" name="days" value="7" />
+                    <button className={btn} title="Push out one week">+1w</button>
+                  </form>
+                </div>
               )}
-              {waiting && (
-                <>
-                  {" · waiting on "}
-                  <Link href={contactHref(waiting.id)} className="text-blue-600 underline">
-                    {personName(waiting)}
-                  </Link>
-                </>
-              )}
-            </p>
+            </div>
+            {returnPath && (
+              <details className="mt-2">
+                <summary className="text-xs text-blue-700 cursor-pointer select-none">Edit</summary>
+                <form action={updateTaskAction} className="mt-2 grid grid-cols-6 gap-2 items-end">
+                  {hidden}
+                  <label className="text-xs text-gray-600 col-span-3">
+                    Task
+                    <input name="description" defaultValue={t.description} required className={`${input} w-full`} />
+                  </label>
+                  <label className="text-xs text-gray-600">
+                    Due
+                    <input name="due_date" type="date" defaultValue={t.due_date ?? ""} className={`${input} w-full`} />
+                  </label>
+                  <label className="text-xs text-gray-600 col-span-2">
+                    Ball in whose court
+                    <select name="waiting_on_contact_id" defaultValue={waiting?.id ?? ""} className={`${input} w-full`}>
+                      <option value="">Mine (Your move)</option>
+                      {waiting && !contacts.some((c) => c.id === waiting.id) && (
+                        <option value={waiting.id}>Waiting on {personName(waiting)}</option>
+                      )}
+                      {contacts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          Waiting on {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="col-span-6 flex justify-between">
+                    <button type="submit" className="bg-blue-600 text-white rounded px-3 py-1 text-xs">
+                      Save changes
+                    </button>
+                  </div>
+                </form>
+                <form action={cancelTaskFromRecord} className="mt-2">
+                  {hidden}
+                  <button className="text-xs text-red-700 underline" title="Close without doing it; the row is kept">
+                    Cancel this task
+                  </button>
+                </form>
+              </details>
+            )}
           </div>
         );
       })}

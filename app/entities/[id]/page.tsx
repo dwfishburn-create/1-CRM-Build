@@ -26,6 +26,8 @@ import {
   type LeaseLite,
   type TaskLite,
 } from "@/app/_components/RecordParts";
+import { LogActivityForm } from "@/app/_components/LogActivityForm";
+import { contactOptions } from "@/lib/contactOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -156,6 +158,9 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
   }
   const primary = one(entity.primary_contact);
 
+  const allContacts = await contactOptions();
+  const here = `/entities/${id}`;
+
   // Roles derived from the relationships actually on file.
   const roles: string[] = [];
   if ((owned ?? []).some((o) => o.is_current)) roles.push("Owner");
@@ -220,8 +225,19 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
 
       <NotesBox text={entity.notes} />
 
+      <LogActivityForm
+        returnPath={here}
+        entityId={entity.id}
+        projects={(projectLinks ?? [])
+          .map((pl) => one(pl.project))
+          .filter((p): p is NonNullable<typeof p> => !!p)
+          .map((p) => ({ id: p.id, label: `${p.project_code} — ${p.client_name}` }))}
+        preferredContacts={allContacts.filter((c) => people.has(c.id))}
+        allContacts={allContacts}
+      />
+
       <Section title="Open tasks" count={tasks?.length ?? 0}>
-        <TaskList tasks={tasks ?? []} />
+        <TaskList tasks={tasks ?? []} returnPath={here} contacts={allContacts} />
       </Section>
 
       <Section title="People" count={people.size}>

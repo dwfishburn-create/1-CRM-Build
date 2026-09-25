@@ -3,7 +3,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
-import { completeTask, cancelTask, type RecurrenceUnit } from "@/lib/tasks";
+import {
+  bumpTask,
+  cancelTask,
+  completeTask,
+  TASK_EDITABLE_FIELDS,
+  updateTask,
+  type RecurrenceUnit,
+  type TaskPatch,
+} from "@/lib/tasks";
 
 const RECURRENCE_UNITS: RecurrenceUnit[] = ["none", "day", "week", "month", "year"];
 
@@ -114,10 +122,18 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ task: data }, { status: 201 });
 }
 
-// PATCH /api/agent/tasks — update a task. Body: { id, action } where action
-// is "complete" (marks done and, if recurring, creates the next occurrence
-// via lib/tasks.ts) or "cancel". For any other field change, use the
-// Supabase SQL editor or the web UI — this endpoint is intentionally narrow.
+// PATCH /api/agent/tasks — change a task. Body: { id, action, ... }
+//   action "complete" — mark done; a recurring task spawns its next occurrence.
+//   action "cancel"   — close it without deleting, so the history survives.
+//   action "update"   — edit any of description, due_date, category,
+//                       waiting_on_contact_id, project_id, property_id,
+//                       contact_id, entity_id, requirement_id. Only the fields
+//                       present change; "" clears one (waiting_on_contact_id:
+//                       "" hands the ball back to Dan). Open tasks only.
+//   action "bump"     — push the due date out by `days` (default 7), from the
+//                       current due date or from today if it is overdue.
+// Added "update"/"bump" 9/24/2026 (fifth pass): before, a slipped follow-up had
+// to be cancelled and re-created, losing its link to the source activity.
 export async function PATCH(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -132,9 +148,9 @@ export async function PATCH(request: NextRequest) {
   if (!id) {
     return NextResponse.json({ error: "id is required." }, { status: 400 });
   }
-  if (action !== "complete" && action !== "cancel") {
+  if (!["complete", "cancel", "update", "bump"].includes(action)) {
     return NextResponse.json(
-      { error: 'action must be "complete" or "cancel".' },
+      { error: 'action must be "complete", "cancel", "update" or "bump".' },
       { status: 400 }
     );
   }
@@ -142,13 +158,29 @@ export async function PATCH(request: NextRequest) {
   try {
     if (action === "complete") {
       await completeTask(id);
-    } else {
-      await cancelTask(id);
+      return NextResponse.json({ ok: true });
     }
+    if (action === "cancel") {
+      await cancelTask(id);
+      return NextResponse.json({ ok: true });
+    }
+    if (action === "bump") {
+      const days = Number(body.days ?? 7);
+      if (!Number.isInteger(days) || days < 1 || days > 365) {
+        return NextResponse.json({ error: "days must be an integer 1–365." }, { status: 400 });
+      }
+      const task = await bumpTask(id, days);
+      return NextResponse.json({ task });
+    }
+    const patch: TaskPatch = {};
+    for (const key of TASK_EDITABLE_FIELDS) {
+      if (key in body) patch[key] = body[key] === null ? null : String(body[key]);
+    }
+    const task = await updateTask(id, patch);
+    return NextResponse.json({ task });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Update failed.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status = /not found/i.test(message) ? 404 : /only open|No fields|cannot be empty/.test(message) ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
-
-  return NextResponse.json({ ok: true });
 }
