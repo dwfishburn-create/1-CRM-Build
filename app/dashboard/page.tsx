@@ -1,520 +1,350 @@
-import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { contactHref, entityHref, propertyHref } from "@/lib/records";
-import { completeTaskAction } from "../tasks/actions";
-import { completeLeaseEventAction } from "./lease-event-actions";
+import {
+  addDays,
+  dayOfWeek,
+  daysBetween,
+  longDate,
+  monthDay,
+  monthName,
+  nextMonday,
+  shortDay,
+  todayCentral,
+} from "@/lib/centralDate";
+import DashboardView, {
+  type AheadData,
+  type DashRow,
+  type PreviewData,
+  type WaitingRow,
+} from "./DashboardView";
 
 export const dynamic = "force-dynamic";
 
-type NamedContact = { id: string; first_name: string | null; last_name: string | null };
-type NamedEntity = { id: string; name: string };
-type NamedProperty = { id: string; display_code: string | null; address: string };
-type NamedProject = {
-  id: string;
-  project_code: string;
-  client_name: string;
-  expected_value: number | null;
-};
-type NamedRequirement = { id: string; display_code: string | null; deal_type: string | null };
+// Dashboard redesign, 9/26/2026. The rule (Dan): the Dashboard shows nothing
+// that is in the future — only what is due today or overdue. Next week comes
+// through the weekly Preview (Wednesday–Sunday, retired with "Got it"); anything
+// further out is behind the Looking Ahead button. One line per item; the full
+// description, last activity and actions open on click. Deal work and
+// prospecting are separate lanes. Supersedes the 9/9/2026 lease-events panel:
+// lease dates show in the Preview and Looking Ahead, not on the daily screen.
+
+type Named = { id: string; name: string; trade_name?: string | null };
+type Person = { id: string; first_name: string | null; last_name: string | null };
+type Prop = { id: string; display_code: string | null; address: string; city: string | null };
+type Proj = { id: string; project_code: string; client_name: string; expected_value: number | null };
 
 type TaskRow = {
   id: string;
   display_code: string | null;
+  title: string | null;
   description: string;
   due_date: string | null;
   category: string | null;
-  waiting_on_contact: NamedContact | NamedContact[] | null;
-  contact: NamedContact | NamedContact[] | null;
-  entity: NamedEntity | NamedEntity[] | null;
-  property: NamedProperty | NamedProperty[] | null;
-  project: NamedProject | NamedProject[] | null;
-  requirement: NamedRequirement | NamedRequirement[] | null;
-};
-
-type ActivityRow = {
+  created_at: string;
+  source_system: string | null;
   project_id: string | null;
-  activity_date: string;
-  summary: string | null;
-  activity_type: string;
+  waiting_on_contact: Person | Person[] | null;
+  contact: Person | Person[] | null;
+  entity: Named | Named[] | null;
+  property: Prop | Prop[] | null;
+  project: Proj | Proj[] | null;
 };
 
-// Lease Events Dashboard integration, added 9/9/2026 — surfaces the
-// Phase 2 (migration 012) lease_events table on the daily triage view, per
-// the "schema first, dashboard integration later" sequencing already used
-// for Expected Value above. No waiting-on/EV concept applies here (a lease
-// event isn't assigned to anyone or scored) — just sorted soonest-first,
-// with is_completed-false events lacking a confirmed event_date listed
-// last rather than guessed into a position.
-type EntityBrief = { id: string; name: string; trade_name: string | null };
-type PropertyBrief = { id: string; display_code: string | null; address: string };
-type SpaceBrief = {
-  suite_number: string | null;
-  property: PropertyBrief | PropertyBrief[] | null;
-};
-type LeaseBrief = {
-  display_code: string | null;
-  tenant_entity: EntityBrief | EntityBrief[] | null;
-  space: SpaceBrief | SpaceBrief[] | null;
-};
 type LeaseEventRow = {
   id: string;
-  display_code: string | null;
   event_type: string;
   event_date: string | null;
   amount: number | null;
-  notes: string | null;
-  lease: LeaseBrief | LeaseBrief[] | null;
+  lease: {
+    tenant_entity: Named | Named[] | null;
+    space: { property: Prop | Prop[] | null } | { property: Prop | Prop[] | null }[] | null;
+  } | null;
 };
 
-function one<T>(v: T | T[] | null): T | null {
+function one<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
   return Array.isArray(v) ? v[0] ?? null : v;
 }
 
-function contactName(c: NamedContact | null): string {
-  if (!c) return "";
-  return [c.first_name, c.last_name].filter(Boolean).join(" ") || "Unnamed contact";
+function personName(p: Person | null): string {
+  if (!p) return "";
+  return [p.first_name, p.last_name].filter(Boolean).join(" ") || "Unnamed contact";
 }
 
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+/** Falls back to the first clause of the description when a task has no title. */
+function titleOf(t: TaskRow): string {
+  if (t.title) return t.title;
+  const first = t.description.split(/(?<=[.:;?!])\s|\s—\s/)[0] ?? t.description;
+  return first.length > 80 ? first.slice(0, 77).trimEnd() + "…" : first;
 }
 
-function isOverdue(dueDate: string | null): boolean {
-  return !!dueDate && dueDate < todayStr();
-}
-
-function isDueToday(dueDate: string | null): boolean {
-  return dueDate === todayStr();
-}
-
-// Value-aware triage sort, added 9/2/2026 per the Value/Probability/
-// Expected-Value scoring build — surfaces high-Expected-Value deals within
-// the daily triage view instead of pure chronological order. Urgency still
-// wins outright: overdue tasks stay sorted by how overdue they are (most
-// overdue first), same as before this change. Only among NON-overdue tasks
-// (due today, due later, or no due date) does Expected Value become the
-// primary sort, with due date as the tie-break — so a $0 due-today
-// reminder doesn't get buried under a large deal that isn't due for weeks.
-function taskExpectedValue(t: TaskRow): number {
-  return one(t.project)?.expected_value ?? 0;
-}
-
-function compareNonOverdue(a: TaskRow, b: TaskRow): number {
-  const evDiff = taskExpectedValue(b) - taskExpectedValue(a);
-  if (evDiff !== 0) return evDiff;
-  const dueA = a.due_date ?? "9999-12-31";
-  const dueB = b.due_date ?? "9999-12-31";
-  return dueA.localeCompare(dueB);
-}
-
-function sortForTriage(tasks: TaskRow[]): TaskRow[] {
-  const overdue = tasks
-    .filter((t) => isOverdue(t.due_date))
-    .sort((a, b) => (a.due_date ?? "").localeCompare(b.due_date ?? ""));
-  const rest = tasks.filter((t) => !isOverdue(t.due_date)).sort(compareNonOverdue);
-  return [...overdue, ...rest];
-}
-
-// No EV-style value dimension for lease events, so a plain ascending sort on
-// event_date already puts overdue events first (their dates sort earliest),
-// then soonest-upcoming — undated events (no confirmed date yet) go last
-// since there's nothing to sort them by.
-function sortLeaseEvents(events: LeaseEventRow[]): LeaseEventRow[] {
-  const dated = events
-    .filter((e): e is LeaseEventRow & { event_date: string } => !!e.event_date)
-    .sort((a, b) => a.event_date.localeCompare(b.event_date));
-  const undated = events.filter((e) => !e.event_date);
-  return [...dated, ...undated];
-}
-
-// Returns links rather than a flat string (9/24/2026) now that the property
-// and entity detail pages exist — the card is the way into the record.
-function leaseEventContext(e: LeaseEventRow): React.ReactNode {
-  const lease = one(e.lease);
-  if (!lease) return null;
-  const tenant = one(lease.tenant_entity);
-  const space = one(lease.space);
-  const property = space ? one(space.property) : null;
-  if (!tenant && !property) return lease.display_code;
-  return (
-    <>
-      {property && (
-        <Link href={propertyHref(property.id)} className="text-blue-600 underline">
-          {property.address}
-          {space?.suite_number ? ` #${space.suite_number}` : ""}
-        </Link>
-      )}
-      {property && tenant && " — "}
-      {tenant && (
-        <Link href={entityHref(tenant.id)} className="text-blue-600 underline">
-          {tenant.trade_name || tenant.name}
-        </Link>
-      )}
-    </>
-  );
-}
-
-function linkedToLabel(t: TaskRow): { label: string; href: string } | null {
-  const project = one(t.project);
-  if (project) {
-    return {
-      label: `${project.project_code} — ${project.client_name}`,
-      href: `/projects/${project.id}`,
-    };
-  }
-  const requirement = one(t.requirement);
-  if (requirement) {
-    return { label: requirement.display_code ?? "Requirement", href: `/requirements/${requirement.id}` };
-  }
-  const property = one(t.property);
-  if (property) {
-    return { label: property.display_code ?? property.address, href: propertyHref(property.id) };
-  }
+function contextOf(t: TaskRow): { label: string; href: string | null } {
   const entity = one(t.entity);
-  if (entity) {
-    return { label: entity.name, href: entityHref(entity.id) };
-  }
-  const contact = one(t.contact);
-  if (contact) {
-    return { label: contactName(contact), href: contactHref(contact.id) };
-  }
-  return null;
+  const property = one(t.property);
+  const project = one(t.project);
+  const parts: string[] = [];
+  if (entity) parts.push(entity.trade_name || entity.name);
+  if (property) parts.push([property.address, property.city].filter(Boolean).join(", "));
+  const href = project
+    ? `/projects/${project.id}`
+    : property
+    ? propertyHref(property.id)
+    : entity
+    ? entityHref(entity.id)
+    : one(t.contact)
+    ? contactHref(one(t.contact)!.id)
+    : null;
+  if (parts.length) return { label: parts.join(" · "), href };
+  if (project) return { label: project.project_code, href };
+  const c = one(t.contact);
+  return { label: c ? personName(c) : "", href };
 }
 
-function TaskCard({
-  task,
-  lastActivity,
-}: {
-  task: TaskRow;
-  lastActivity: ActivityRow | undefined;
-}) {
-  const linked = linkedToLabel(task);
-  const overdue = isOverdue(task.due_date);
-  const dueToday = isDueToday(task.due_date);
-  const expectedValue = one(task.project)?.expected_value ?? null;
-
-  return (
-    <div className="border border-gray-200 rounded-lg p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm">{task.description}</p>
-            {expectedValue != null && (
-              <span className="shrink-0 text-xs text-gray-600 border border-gray-200 rounded px-2 py-0.5 whitespace-nowrap">
-                ${Math.round(expectedValue).toLocaleString()} EV
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            {task.display_code}
-            {task.category && <> · {task.category}</>}
-            {task.due_date && (
-              <>
-                {" · "}
-                <span
-                  className={
-                    overdue
-                      ? "text-red-600 font-medium"
-                      : dueToday
-                      ? "text-amber-600 font-medium"
-                      : ""
-                  }
-                >
-                  {overdue ? "Overdue " : dueToday ? "Due today " : "Due "}
-                  {task.due_date}
-                </span>
-              </>
-            )}
-            {linked && (
-              <>
-                {" · "}
-                <Link href={linked.href} className="text-blue-600 underline">
-                  {linked.label}
-                </Link>
-              </>
-            )}
-          </p>
-          {lastActivity && (
-            <p className="text-xs text-gray-400 mt-1 italic">
-              Last: {lastActivity.summary || lastActivity.activity_type} (
-              {lastActivity.activity_date.slice(0, 10)})
-            </p>
-          )}
-        </div>
-        <form action={completeTaskAction} className="shrink-0">
-          <input type="hidden" name="id" value={task.id} />
-          <button
-            type="submit"
-            className="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 whitespace-nowrap"
-          >
-            Mark done
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+function dueLabel(due: string | null, today: string): { text: string; late: boolean } {
+  if (!due) return { text: "No date", late: false };
+  const d = daysBetween(due, today);
+  if (d > 0) return { text: d === 1 ? "1 day late" : `${d} days late`, late: true };
+  if (d === 0) return { text: "Today", late: false };
+  return { text: shortDay(due), late: false };
 }
 
-function LeaseEventCard({ event }: { event: LeaseEventRow }) {
-  const overdue = isOverdue(event.event_date);
-  const dueToday = isDueToday(event.event_date);
-  const context = leaseEventContext(event);
+function leaseEventText(e: LeaseEventRow): string {
+  const tenant = one(e.lease?.tenant_entity);
+  const space = one(e.lease?.space ?? null);
+  const property = space ? one(space.property) : null;
+  const who = [tenant ? tenant.trade_name || tenant.name : null, property?.address].filter(Boolean).join(", ");
+  return who ? `${e.event_type} — ${who}` : e.event_type;
+}
 
-  return (
-    <div className="border border-gray-200 rounded-lg p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm">{event.event_type}</p>
-            {event.amount != null && (
-              <span className="shrink-0 text-xs text-gray-600 border border-gray-200 rounded px-2 py-0.5 whitespace-nowrap">
-                ${Math.round(event.amount).toLocaleString()}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            {event.display_code}
-            {event.event_date ? (
-              <>
-                {" · "}
-                <span
-                  className={
-                    overdue
-                      ? "text-red-600 font-medium"
-                      : dueToday
-                      ? "text-amber-600 font-medium"
-                      : ""
-                  }
-                >
-                  {overdue ? "Overdue " : dueToday ? "Due today " : "Due "}
-                  {event.event_date}
-                </span>
-              </>
-            ) : (
-              <> · No confirmed date yet</>
-            )}
-            {context && <> · {context}</>}
-          </p>
-          {event.notes && (
-            <p className="text-xs text-gray-400 mt-1 italic">{event.notes}</p>
-          )}
-        </div>
-        <form action={completeLeaseEventAction} className="shrink-0">
-          <input type="hidden" name="id" value={event.id} />
-          <button
-            type="submit"
-            className="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 whitespace-nowrap"
-          >
-            Mark done
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+function flagFor(category: string | null): string {
+  return category && /listing|contract|deposit|closing|escrow/i.test(category) ? "Contract" : "";
 }
 
 export default async function DashboardPage() {
-  const { data: tasks, error } = await supabase
+  const today = todayCentral();
+
+  const { data: tasksData, error } = await supabase
     .from("tasks")
     .select(
-      "id, display_code, description, due_date, category, waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name), contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, name), property:properties!property_id(id, display_code, address), project:projects!project_id(id, project_code, client_name, expected_value), requirement:requirements!requirement_id(id, display_code, deal_type)"
+      "id, display_code, title, description, due_date, category, created_at, source_system, project_id, " +
+        "waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name), " +
+        "contact:contacts!contact_id(id, first_name, last_name), " +
+        "entity:entities!entity_id(id, name, trade_name), " +
+        "property:properties!property_id(id, display_code, address, city), " +
+        "project:projects!project_id(id, project_code, client_name, expected_value)"
     )
     .eq("status", "open")
-    .order("due_date", { ascending: true, nullsFirst: false })
     .returns<TaskRow[]>();
+  const tasks = tasksData ?? [];
 
-  const allTasks = tasks ?? [];
+  const { data: eventsData } = await supabase
+    .from("lease_events")
+    .select(
+      "id, event_type, event_date, amount, lease:leases(tenant_entity:entities!tenant_entity_id(id, name, trade_name), space:spaces(property:properties(id, display_code, address, city)))"
+    )
+    .eq("is_completed", false)
+    .returns<LeaseEventRow[]>();
+  const events = eventsData ?? [];
 
-  // "What was the last thing that happened" context: pull the most recent
-  // activity_log entry per project among tasks linked to a project, per the
-  // Dashboard design (last thing / next thing / who owns it).
-  const projectIds = Array.from(
-    new Set(allTasks.map((t) => one(t.project)?.id).filter((id): id is string => !!id))
-  );
-
-  let lastActivityByProject = new Map<string, ActivityRow>();
-  if (projectIds.length > 0) {
-    const { data: activity } = await supabase
+  // Latest activity per project, shown only when a row is opened.
+  const projectIds = Array.from(new Set(tasks.map((t) => t.project_id).filter((x): x is string => !!x)));
+  const lastByProject = new Map<string, string>();
+  if (projectIds.length) {
+    const { data: acts } = await supabase
       .from("activity_log")
       .select("project_id, activity_date, summary, activity_type")
       .in("project_id", projectIds)
-      .order("activity_date", { ascending: false })
-      .returns<ActivityRow[]>();
-
-    lastActivityByProject = new Map();
-    for (const a of activity ?? []) {
-      if (a.project_id && !lastActivityByProject.has(a.project_id)) {
-        lastActivityByProject.set(a.project_id, a);
+      .order("activity_date", { ascending: false });
+    for (const a of acts ?? []) {
+      if (a.project_id && !lastByProject.has(a.project_id)) {
+        const text = String(a.summary || a.activity_type);
+        lastByProject.set(
+          a.project_id,
+          `${monthDay(String(a.activity_date).slice(0, 10))} — ${text.length > 280 ? text.slice(0, 277) + "…" : text}`
+        );
       }
     }
   }
 
-  const yourMove = sortForTriage(allTasks.filter((t) => !one(t.waiting_on_contact)));
-  const waitingOnTasks = allTasks.filter((t) => one(t.waiting_on_contact));
+  // ---- Today: your move, split into deals and prospecting -----------------
+  const isNow = (t: TaskRow) => !t.due_date || t.due_date <= today;
+  const mine = tasks.filter((t) => !one(t.waiting_on_contact));
+  const nowTasks = mine.filter(isNow);
+  const isProspecting = (t: TaskRow) => t.source_system === "realnex" && !t.project_id;
 
-  const waitingByContact = new Map<string, { contact: NamedContact; tasks: TaskRow[] }>();
-  for (const t of waitingOnTasks) {
-    const c = one(t.waiting_on_contact)!;
-    const existing = waitingByContact.get(c.id);
-    if (existing) {
-      existing.tasks.push(t);
-    } else {
-      waitingByContact.set(c.id, { contact: c, tasks: [t] });
+  function toRows(list: TaskRow[]): DashRow[] {
+    const groups = new Map<string, TaskRow[]>();
+    for (const t of list) {
+      const key = t.project_id ? `p:${t.project_id}` : `t:${t.id}`;
+      groups.set(key, [...(groups.get(key) ?? []), t]);
+    }
+    const rows: (DashRow & { sortDue: string; ev: number })[] = [];
+    for (const [key, g] of groups) {
+      g.sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"));
+      const lead = g[0];
+      const due = dueLabel(lead.due_date, today);
+      const ctx = contextOf(lead);
+      rows.push({
+        key,
+        title: titleOf(lead),
+        count: g.length,
+        context: ctx.label,
+        href: ctx.href,
+        due: due.text,
+        late: due.late,
+        last: lead.project_id ? lastByProject.get(lead.project_id) ?? null : null,
+        tasks: g.map((t) => ({
+          id: t.id,
+          code: t.display_code ?? "",
+          title: titleOf(t),
+          description: t.description,
+          due: dueLabel(t.due_date, today).text,
+          category: t.category ?? "",
+        })),
+        sortDue: lead.due_date ?? "9999-12-31",
+        ev: one(lead.project)?.expected_value ?? 0,
+      });
+    }
+    // Most overdue first, then today, then undated; bigger deals first on ties.
+    rows.sort((a, b) => a.sortDue.localeCompare(b.sortDue) || b.ev - a.ev);
+    return rows.map((r) => ({
+      key: r.key, title: r.title, count: r.count, context: r.context, href: r.href,
+      due: r.due, late: r.late, last: r.last, tasks: r.tasks,
+    }));
+  }
+
+  const deals = toRows(nowTasks.filter((t) => !isProspecting(t)));
+  const prospects = toRows(nowTasks.filter(isProspecting));
+
+  // ---- Waiting on: status, not a to-do, so every one shows ----------------
+  const waiting: WaitingRow[] = tasks
+    .filter((t) => one(t.waiting_on_contact))
+    .sort((a, b) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"))
+    .map((t) => {
+      const who = one(t.waiting_on_contact)!;
+      const ctx = contextOf(t);
+      let follow = "";
+      let late = false;
+      if (t.due_date) {
+        const d = daysBetween(t.due_date, today);
+        if (d > 0) {
+          follow = `follow up — ${d === 1 ? "1 day" : `${d} days`} late`;
+          late = true;
+        } else follow = d === 0 ? "follow up today" : `follow up ${shortDay(t.due_date)}`;
+      }
+      return {
+        id: t.id,
+        who: personName(who),
+        whoHref: contactHref(who.id),
+        what: titleOf(t),
+        context: ctx.label,
+        since: [`Asked ${monthDay(t.created_at.slice(0, 10))}`, follow].filter(Boolean).join(" · "),
+        late,
+      };
+    });
+
+  // ---- Weekly Preview: shown Wednesday through Sunday ---------------------
+  const dow = dayOfWeek(today);
+  const inPreviewWindow = dow === 0 || dow >= 3;
+  const weekStart = nextMonday(today);
+  const weekEnd = addDays(weekStart, 6);
+  let preview: PreviewData | null = null;
+  if (inPreviewWindow) {
+    const { data: dismissed } = await supabase
+      .from("dashboard_preview_dismissals")
+      .select("week_start")
+      .eq("week_start", weekStart)
+      .maybeSingle();
+    if (!dismissed) {
+      type Item = { date: string; text: string; flag: string };
+      const items: Item[] = [];
+      for (const t of tasks) {
+        if (t.due_date && t.due_date >= weekStart && t.due_date <= weekEnd) {
+          const w = one(t.waiting_on_contact);
+          items.push({
+            date: t.due_date,
+            text: w ? `${personName(w)} — follow up: ${titleOf(t)}` : titleOf(t),
+            flag: flagFor(t.category),
+          });
+        }
+      }
+      for (const e of events) {
+        if (e.event_date && e.event_date >= weekStart && e.event_date <= weekEnd) {
+          items.push({ date: e.event_date, text: leaseEventText(e), flag: e.amount ? "Money due" : "Deadline" });
+        }
+      }
+      items.sort((a, b) => a.date.localeCompare(b.date) || (b.flag ? 1 : 0) - (a.flag ? 1 : 0));
+      const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+        .map((d) => ({
+          label: shortDay(d),
+          weekend: dayOfWeek(d) === 0 || dayOfWeek(d) === 6,
+          items: items.filter((it) => it.date === d).map(({ text, flag }) => ({ text, flag })),
+        }))
+        .filter((d) => !d.weekend || d.items.length > 0)
+        .map(({ label, items: its }) => ({ label, items: its }));
+      const headlinePicks: string[] = [];
+      for (const d of days) {
+        if (d.items.length && headlinePicks.length < 3) headlinePicks.push(`${d.label.split(" ")[0]}  ${d.items[0].text}`);
+      }
+      const shown = headlinePicks.length;
+      preview = {
+        weekStart,
+        rangeLabel: `${shortDay(weekStart)} – ${shortDay(weekEnd)}`,
+        headline: headlinePicks,
+        more: Math.max(0, items.length - shown),
+        total: items.length,
+        days,
+      };
     }
   }
-  for (const bucket of waitingByContact.values()) {
-    bucket.tasks = sortForTriage(bucket.tasks);
-  }
 
-  const overdueCount = allTasks.filter((t) => isOverdue(t.due_date)).length;
-  const dueTodayCount = allTasks.filter((t) => isDueToday(t.due_date)).length;
-
-  // Total Expected Value across every project with an open task — summed
-  // per distinct project (not per task), so a project with 3 open tasks
-  // doesn't triple-count its Expected Value.
-  const evByProject = new Map<string, number>();
-  for (const t of allTasks) {
-    const p = one(t.project);
-    if (p && p.expected_value != null) {
-      evByProject.set(p.id, p.expected_value);
+  // ---- Looking Ahead: everything after today, on demand -------------------
+  const horizon = addDays(today, 183);
+  type AheadItem = { date: string; text: string; kind: string };
+  const ahead: AheadItem[] = [];
+  for (const t of tasks) {
+    if (t.due_date && t.due_date > today && t.due_date <= horizon) {
+      const w = one(t.waiting_on_contact);
+      ahead.push({ date: t.due_date, text: w ? `${personName(w)} — ${titleOf(t)}` : titleOf(t), kind: w ? "Waiting on" : t.category || "Task" });
     }
   }
-  const totalExpectedValue = Array.from(evByProject.values()).reduce((sum, v) => sum + v, 0);
+  for (const e of events) {
+    if (e.event_date && e.event_date > today && e.event_date <= horizon) {
+      ahead.push({ date: e.event_date, text: leaseEventText(e), kind: "Lease date" });
+    }
+  }
+  ahead.sort((a, b) => a.date.localeCompare(b.date));
+  const months: AheadData["months"] = [];
+  for (const it of ahead) {
+    const label = monthName(it.date);
+    let m = months.find((x) => x.label === label);
+    if (!m) months.push((m = { label, items: [] }));
+    m.items.push({ date: monthDay(it.date), text: it.text, kind: it.kind });
+  }
+  const pastDue = events
+    .filter((e) => e.event_date && e.event_date < today)
+    .sort((a, b) => (a.event_date ?? "").localeCompare(b.event_date ?? ""))
+    .map((e) => ({ id: e.id, date: monthDay(e.event_date!) + "/" + e.event_date!.slice(2, 4), text: leaseEventText(e) }));
 
-  const { data: leaseEventsData } = await supabase
-    .from("lease_events")
-    .select(
-      "id, display_code, event_type, event_date, amount, notes, " +
-        "lease:leases(display_code, " +
-        "tenant_entity:entities!tenant_entity_id(id, name, trade_name), " +
-        "space:spaces(suite_number, property:properties(id, display_code, address)))"
-    )
-    .eq("is_completed", false)
-    .returns<LeaseEventRow[]>();
-
-  const allLeaseEvents = sortLeaseEvents(leaseEventsData ?? []);
-  const leaseEventOverdueCount = allLeaseEvents.filter((e) => isOverdue(e.event_date)).length;
+  // ---- Summary line ---------------------------------------------------------
+  const overdue = nowTasks.filter((t) => t.due_date && t.due_date < today).length;
+  const dueToday = nowTasks.filter((t) => t.due_date === today).length;
+  const summary = [
+    overdue ? `${overdue} overdue` : "nothing overdue",
+    dueToday ? `${dueToday} due today` : overdue ? "nothing else due today" : "nothing due today",
+    waiting.length ? `${waiting.length} waiting` : "not waiting on anyone",
+  ].join(" · ");
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-1">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <Link href="/tasks" className="text-sm text-blue-600 underline">
-          All tasks →
-        </Link>
-      </div>
-      <p className="text-gray-500 mb-6 text-sm">
-        Daily triage: what&apos;s your move, and what are you waiting on
-        someone else for. Open tasks only — see All tasks for the full list
-        and to add new ones.
-      </p>
-
-      {error && <p className="text-red-600 mb-4">Error loading dashboard: {error.message}</p>}
-
-      <div className="grid grid-cols-2 sm:grid-cols-6 gap-4 mb-8">
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-3xl font-semibold">{allTasks.length}</div>
-          <div className="text-gray-500 text-sm">Open tasks</div>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className={`text-3xl font-semibold ${overdueCount > 0 ? "text-red-600" : ""}`}>
-            {overdueCount}
-          </div>
-          <div className="text-gray-500 text-sm">Overdue</div>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className={`text-3xl font-semibold ${dueTodayCount > 0 ? "text-amber-600" : ""}`}>
-            {dueTodayCount}
-          </div>
-          <div className="text-gray-500 text-sm">Due today</div>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-3xl font-semibold">{waitingByContact.size}</div>
-          <div className="text-gray-500 text-sm">People you&apos;re waiting on</div>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-3xl font-semibold">
-            ${Math.round(totalExpectedValue).toLocaleString()}
-          </div>
-          <div className="text-gray-500 text-sm">Expected value in play</div>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div
-            className={`text-3xl font-semibold ${
-              leaseEventOverdueCount > 0 ? "text-red-600" : ""
-            }`}
-          >
-            {allLeaseEvents.length}
-          </div>
-          <div className="text-gray-500 text-sm">Open lease events</div>
-        </div>
-      </div>
-
-      <h2 className="text-lg font-semibold mb-1">Your move ({yourMove.length})</h2>
-      <p className="text-gray-400 text-xs mb-3">
-        Sorted by Expected Value within each urgency tier — overdue items
-        stay sorted by how overdue they are; everything else is sorted
-        highest-value first, due date as the tie-break.
-      </p>
-      <div className="grid gap-2 mb-10">
-        {yourMove.map((t) => (
-          <TaskCard
-            key={t.id}
-            task={t}
-            lastActivity={
-              one(t.project) ? lastActivityByProject.get(one(t.project)!.id) : undefined
-            }
-          />
-        ))}
-        {yourMove.length === 0 && (
-          <p className="text-gray-400 text-sm">Nothing on your plate right now.</p>
-        )}
-      </div>
-
-      <h2 className="text-lg font-semibold mb-3">Waiting on someone else</h2>
-      <div className="grid gap-6 mb-10">
-        {Array.from(waitingByContact.values()).map(({ contact, tasks: contactTasks }) => (
-          <div key={contact.id}>
-            <h3 className="text-sm font-medium text-gray-600 mb-2">
-              <Link href={contactHref(contact.id)} className="text-blue-600 underline">
-                {contactName(contact)}
-              </Link>
-            </h3>
-            <div className="grid gap-2">
-              {contactTasks.map((t) => (
-                <TaskCard
-                  key={t.id}
-                  task={t}
-                  lastActivity={
-                    one(t.project) ? lastActivityByProject.get(one(t.project)!.id) : undefined
-                  }
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-        {waitingByContact.size === 0 && (
-          <p className="text-gray-400 text-sm">Not waiting on anyone right now.</p>
-        )}
-      </div>
-
-      <h2 className="text-lg font-semibold mb-1">
-        Upcoming lease events ({allLeaseEvents.length})
-      </h2>
-      <p className="text-gray-400 text-xs mb-3">
-        Option/renewal deadlines, rent bumps, TI disbursements, and other
-        dated lease terms — sorted soonest first; events without a confirmed
-        date yet are listed last.
-      </p>
-      <div className="grid gap-2">
-        {allLeaseEvents.map((e) => (
-          <LeaseEventCard key={e.id} event={e} />
-        ))}
-        {allLeaseEvents.length === 0 && (
-          <p className="text-gray-400 text-sm">No open lease events right now.</p>
-        )}
-      </div>
-    </div>
+    <DashboardView
+      dateLabel={longDate(today)}
+      summary={summary}
+      error={error?.message ?? null}
+      deals={deals}
+      prospects={prospects}
+      waiting={waiting}
+      preview={preview}
+      ahead={{ months, pastDue }}
+    />
   );
 }

@@ -5,6 +5,7 @@ export type RecurrenceUnit = "none" | "day" | "week" | "month" | "year";
 
 type TaskRow = {
   id: string;
+  title: string | null;
   description: string;
   due_date: string | null;
   property_id: string | null;
@@ -49,7 +50,7 @@ export async function completeTask(taskId: string): Promise<void> {
   const { data: task, error: fetchError } = await supabase
     .from("tasks")
     .select(
-      "id, description, due_date, property_id, project_id, contact_id, entity_id, requirement_id, waiting_on_contact_id, category, recurrence_unit, recurrence_interval, parent_task_id"
+      "id, title, description, due_date, property_id, project_id, contact_id, entity_id, requirement_id, waiting_on_contact_id, category, recurrence_unit, recurrence_interval, parent_task_id"
     )
     .eq("id", taskId)
     .maybeSingle()
@@ -74,6 +75,7 @@ export async function completeTask(taskId: string): Promise<void> {
 
     const { error: insertError } = await supabase.from("tasks").insert({
       display_code,
+      title: task.title,
       description: task.description,
       due_date: nextDue,
       status: "open",
@@ -115,6 +117,7 @@ export async function cancelTask(taskId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export const TASK_EDITABLE_FIELDS = [
+  "title",
   "description",
   "due_date",
   "category",

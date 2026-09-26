@@ -142,6 +142,12 @@ export default async function TasksPage() {
         action={createTask}
         className="grid grid-cols-4 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
       >
+        <input
+          name="title"
+          placeholder="Short title, what the Dashboard shows (e.g. Krenzien — call Brad re the offer)"
+          maxLength={120}
+          className="border border-gray-300 rounded px-3 py-2 col-span-4"
+        />
         <textarea
           name="description"
           placeholder="What needs to happen?"

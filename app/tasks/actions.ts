@@ -14,6 +14,7 @@ export async function createTask(formData: FormData) {
   const description = String(formData.get("description") || "").trim();
   if (!description) throw new Error("description is required.");
 
+  const title = String(formData.get("title") || "").trim() || null;
   const due_date = String(formData.get("due_date") || "").trim() || null;
   const category = String(formData.get("category") || "").trim() || null;
 
@@ -38,6 +39,7 @@ export async function createTask(formData: FormData) {
 
   const { error } = await supabase.from("tasks").insert({
     display_code,
+    title,
     description,
     due_date,
     status: "open",

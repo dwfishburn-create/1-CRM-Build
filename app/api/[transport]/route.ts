@@ -898,9 +898,13 @@ server.registerTool(
           "interaction — a license renewal, a recurring admin item, a reminder to research " +
           "something. Set waiting_on_contact_id when the ball is in someone else's court; the " +
           "Dashboard splits on exactly that. recurrence_unit/recurrence_interval make it " +
-          "repeat (completing it spawns the next occurrence).",
+          "repeat (completing it spawns the next occurrence). ALWAYS set title: a short " +
+          "one-line label (roughly 40-70 characters, e.g. \"Krenzien — call Brad re $925K\") " +
+          "that is all the Dashboard shows until the row is opened; description holds the " +
+          "full detail.",
         inputSchema: {
           ...provenanceArgs,
+          title: z.string().max(120).optional(),
           description: z.string().min(1),
           due_date: z.string().optional(),
           category: z.string().optional(),
@@ -978,9 +982,11 @@ server.registerTool(
           "overdue; use it instead of due_date, not with it. Re-dating a task does not " +
           "rewrite the source activity's next_step_due_date — the activity records what " +
           "was agreed, the task is the live queue. Closed tasks can't be edited. Use " +
-          "complete_task to finish or cancel one.",
+          "complete_task to finish or cancel one. title is the short Dashboard label; set one " +
+          "on any task that lacks it.",
         inputSchema: {
           id: z.string().min(1),
+          title: z.string().max(120).optional(),
           description: z.string().optional(),
           due_date: z.string().optional(),
           bump_days: z.number().int().min(1).max(365).optional(),
@@ -1871,7 +1877,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.12.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.13.0" },
     verboseLogs: true,
   }
 );

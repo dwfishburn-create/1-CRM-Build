@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 
 // POST /api/agent/tasks — create a task. A task can stand entirely alone
 // (no CRM entity attached) — every link field is optional.
-// Body: { description, due_date?, category?, property_id?, project_id?,
+// Body: { description, title?, due_date?, category?, property_id?, project_id?,
 //         contact_id?, entity_id?, requirement_id?, waiting_on_contact_id?,
 //         recurrence_unit?, recurrence_interval? }
 // Mirrors app/tasks/actions.ts:createTask field-for-field.
@@ -70,6 +70,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "description is required." }, { status: 400 });
   }
 
+  // Short one-line label the Dashboard shows (9/26/2026). Optional — the
+  // Dashboard falls back to a shortened description when it is missing.
+  const title = body.title ? String(body.title).trim() || null : null;
   const due_date = body.due_date ? String(body.due_date).trim() : null;
   const category = body.category ? String(body.category).trim() : null;
   const property_id = body.property_id ? String(body.property_id).trim() : null;
@@ -99,6 +102,7 @@ export async function POST(request: NextRequest) {
     .insert({
       ...provenance(body),
       display_code,
+      title,
       description,
       due_date,
       status: "open",
