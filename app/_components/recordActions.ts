@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { logActivity } from "@/lib/activity";
+import { logActivity, updateActivity, type ActivityPatch } from "@/lib/activity";
 import { bumpTask, cancelTask, completeTask, updateTask } from "@/lib/tasks";
 
 // Server actions for the Contact, Property and Entity pages (9/24/2026, fifth
@@ -78,5 +78,30 @@ export async function cancelTaskFromRecord(fd: FormData) {
   const id = str(fd, "id");
   if (!id) throw new Error("id is required.");
   await cancelTask(id);
+  refresh(fd);
+}
+
+// Correct an activity from the record pages (9/27/2026). Text fields and the
+// contact link; the edit history is written by update_activity() in Postgres.
+export async function updateActivityAction(fd: FormData) {
+  const id = str(fd, "id");
+  if (!id) throw new Error("id is required.");
+  const next_step = str(fd, "next_step");
+  const next_step_due_date = str(fd, "next_step_due_date");
+  if (next_step_due_date && !next_step) {
+    throw new Error("A follow-up date needs a next step to go with it.");
+  }
+  // Only send the date if it was changed: re-sending an unchanged date would
+  // reset the stored time of day to noon and log a false edit.
+  const activity_date = str(fd, "activity_date");
+  const patch: ActivityPatch = {
+    activity_type: str(fd, "activity_type"),
+    summary: str(fd, "summary"),
+    next_step,
+    next_step_due_date,
+    contact_id: str(fd, "contact_id"),
+  };
+  if (activity_date && activity_date !== str(fd, "original_date")) patch.activity_date = activity_date;
+  await updateActivity(id, patch, { source: "web" });
   refresh(fd);
 }

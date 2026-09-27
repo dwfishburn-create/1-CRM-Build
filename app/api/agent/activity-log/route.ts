@@ -2,7 +2,13 @@ import { provenance } from "@/lib/provenance";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { logActivity } from "@/lib/activity";
+import {
+  logActivity,
+  updateActivity,
+  ActivityEditError,
+  ACTIVITY_EDITABLE_FIELDS,
+  type ActivityPatch,
+} from "@/lib/activity";
 
 // GET /api/agent/activity-log?limit=50&project_id=&property_id=&entity_id=&contact_id=
 // List activity log entries, most recent by activity_date first. Any of the
@@ -89,5 +95,53 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Insert failed.";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// PATCH /api/agent/activity-log — correct an existing activity (9/27/2026,
+// migration 021). Body: { id, ...fields, waiting_on_contact_id? }.
+//
+// Editable: activity_type, activity_date, performed_by, summary, next_step,
+// next_step_due_date, client_visible, contact_id, entity_id, project_id,
+// property_id. Only the fields present change; an empty string clears one
+// (activity_type and activity_date cannot be cleared). Every field that
+// actually changes is written to activity_log_edits with its old and new
+// value, and edited_at is stamped — the log is evidence, so edits stay
+// visible.
+//
+// An existing follow-up task is left alone (use update_task). If the edit
+// gives an undated next step its first date, the task is created then, and
+// waiting_on_contact_id applies to it.
+//
+// No delete: a mistaken entry gets its summary rewritten "[VOID — reason]"
+// and its links cleared.
+export async function PATCH(request: NextRequest) {
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const id = String(body.id || "").trim();
+  if (!id) {
+    return NextResponse.json({ error: "id is required." }, { status: 400 });
+  }
+
+  const patch: ActivityPatch = {};
+  for (const key of ACTIVITY_EDITABLE_FIELDS) {
+    if (key in body) patch[key] = body[key] as string | boolean | null;
+  }
+
+  try {
+    const result = await updateActivity(id, patch, {
+      source: typeof body.source === "string" && body.source.trim() ? body.source.trim() : "agent_api",
+      waiting_on_contact_id: (body.waiting_on_contact_id as string | undefined) ?? null,
+    });
+    return NextResponse.json(result);
+  } catch (err) {
+    const status = err instanceof ActivityEditError ? err.status : 500;
+    const message = err instanceof Error ? err.message : "Update failed.";
+    return NextResponse.json({ error: message }, { status });
   }
 }

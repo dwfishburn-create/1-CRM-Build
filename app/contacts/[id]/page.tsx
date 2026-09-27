@@ -342,7 +342,7 @@ export default async function ContactDetailPage(props: PageProps<"/contacts/[id]
       )}
 
       <Section title="Activity" count={activity?.length ?? 0}>
-        <ActivityFeed rows={activity ?? []} hide="contact" />
+        <ActivityFeed rows={activity ?? []} hide="contact" returnPath={here} contacts={allContacts} />
       </Section>
     </div>
   );

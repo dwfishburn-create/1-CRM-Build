@@ -482,7 +482,7 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
       )}
 
       <Section title="Activity" count={activity?.length ?? 0}>
-        <ActivityFeed rows={activity ?? []} hide="property" />
+        <ActivityFeed rows={activity ?? []} hide="property" returnPath={here} contacts={allContacts} />
       </Section>
     </div>
   );

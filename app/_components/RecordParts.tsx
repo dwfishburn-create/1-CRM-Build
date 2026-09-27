@@ -17,6 +17,7 @@ import {
   bumpTaskAction,
   cancelTaskFromRecord,
   completeTaskFromRecord,
+  updateActivityAction,
   updateTaskAction,
 } from "./recordActions";
 
@@ -228,6 +229,7 @@ export type ActivityLite = {
   summary: string | null;
   next_step: string | null;
   next_step_due_date: string | null;
+  edited_at?: string | null;
   contact?: Named | Named[] | null;
   entity?: EntLite | EntLite[] | null;
   property?: PropLite | PropLite[] | null;
@@ -239,9 +241,13 @@ export type ActivityLite = {
 export function ActivityFeed({
   rows,
   hide,
+  returnPath,
+  contacts = [],
 }: {
   rows: ActivityLite[];
   hide?: "contact" | "entity" | "property";
+  returnPath?: string;
+  contacts?: Option[];
 }) {
   if (rows.length === 0) return <Empty>No activity logged.</Empty>;
   return (
@@ -255,6 +261,7 @@ export function ActivityFeed({
           <div key={a.id} className="border border-gray-200 rounded-lg p-3">
             <p className="text-xs text-gray-400">
               {day(a.activity_date)} · {a.activity_type} · {a.display_code}
+              {a.edited_at && <span title={`Corrected ${day(a.edited_at)}`}> · edited</span>}
               {pr && (
                 <>
                   {" · "}
@@ -297,6 +304,7 @@ export function ActivityFeed({
                 )}
               </p>
             )}
+            {returnPath && <ActivityEdit a={a} returnPath={returnPath} contacts={contacts} />}
           </div>
         );
       })}
@@ -437,7 +445,7 @@ export function LeaseList({
 }
 
 export const ACTIVITY_SELECT =
-  "id, display_code, activity_type, activity_date, summary, next_step, next_step_due_date, " +
+  "id, display_code, activity_type, activity_date, summary, next_step, next_step_due_date, edited_at, " +
   "contact:contacts!contact_id(id, first_name, last_name), " +
   "entity:entities!entity_id(id, name), " +
   "property:properties!property_id(id, display_code, address, suite_number), " +
@@ -446,3 +454,80 @@ export const ACTIVITY_SELECT =
 export const TASK_SELECT =
   "id, display_code, description, due_date, status, category, " +
   "waiting_on_contact:contacts!waiting_on_contact_id(id, first_name, last_name)";
+
+// Edit form for one activity (9/27/2026). Corrections only — every change is
+// kept in activity_log_edits with its old value. An existing follow-up task is
+// not touched; re-date it in Tasks above.
+function ActivityEdit({
+  a,
+  returnPath,
+  contacts,
+}: {
+  a: ActivityLite;
+  returnPath: string;
+  contacts: Option[];
+}) {
+  const input = "border border-gray-300 rounded px-2 py-1 text-sm";
+  const c = one(a.contact ?? null);
+  // The stored timestamp is shown as its Central calendar date.
+  const dateValue = new Date(a.activity_date).toLocaleDateString("en-CA", {
+    timeZone: "America/Chicago",
+  });
+  return (
+    <details className="mt-2">
+      <summary className="text-xs text-blue-700 cursor-pointer select-none">Correct</summary>
+      <form action={updateActivityAction} className="mt-2 grid grid-cols-6 gap-2 items-end">
+        <input type="hidden" name="id" value={a.id} />
+        <input type="hidden" name="return_path" value={returnPath} />
+        <input type="hidden" name="original_date" value={dateValue} />
+        <label className="text-xs text-gray-600 col-span-2">
+          Type
+          <input name="activity_type" defaultValue={a.activity_type} required className={`${input} w-full`} />
+        </label>
+        <label className="text-xs text-gray-600">
+          Date
+          <input name="activity_date" type="date" defaultValue={dateValue} required className={`${input} w-full`} />
+        </label>
+        <label className="text-xs text-gray-600 col-span-3">
+          Contact
+          <select name="contact_id" defaultValue={c?.id ?? ""} className={`${input} w-full`}>
+            <option value="">— none —</option>
+            {c && !contacts.some((o) => o.id === c.id) && (
+              <option value={c.id}>{personName(c)}</option>
+            )}
+            {contacts.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-gray-600 col-span-6">
+          Summary
+          <textarea name="summary" defaultValue={a.summary ?? ""} rows={3} className={`${input} w-full`} />
+        </label>
+        <label className="text-xs text-gray-600 col-span-4">
+          Next step
+          <input name="next_step" defaultValue={a.next_step ?? ""} className={`${input} w-full`} />
+        </label>
+        <label className="text-xs text-gray-600 col-span-2">
+          Next step date
+          <input
+            name="next_step_due_date"
+            type="date"
+            defaultValue={a.next_step_due_date ?? ""}
+            className={`${input} w-full`}
+          />
+        </label>
+        <div className="col-span-6 flex items-center justify-between">
+          <button type="submit" className="bg-blue-600 text-white rounded px-3 py-1 text-xs">
+            Save correction
+          </button>
+          <span className="text-xs text-gray-400">
+            Changes are kept in the edit history. Re-date a follow-up task in Tasks, not here.
+          </span>
+        </div>
+      </form>
+    </details>
+  );
+}

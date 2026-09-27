@@ -309,7 +309,10 @@ server.registerTool(
           "than creating a second record; pass allow_duplicate: true only when it really " +
           "is a different company. aliases: other names this company is known by (the name " +
           "on the lease, the assessor's spelling, a d/b/a) — recording them here is what " +
-          "stops the next session creating a duplicate under one of those names.",
+          "stops the next session creating a duplicate under one of those names. A create " +
+          "that succeeds can still return near_miss_warning — names that are similar but not " +
+          "blocking, including ones sharing their first distinctive word (Kaizen / Kaizen " +
+          "Submission Group). Read it: if it is the same company, merge_entities now.",
         inputSchema: {
           ...provenanceArgs,
           name: z.string().min(1),
@@ -1320,6 +1323,41 @@ server.registerTool(
       },
       async (args) => toolResult(await agentApiPost("activity-log", args))
     );
+    server.registerTool(
+      "update_activity",
+      {
+        title: "Correct an activity",
+        description:
+          "Correct an EXISTING activity log entry by id — the most common use is fixing a link " +
+          "(add the contact_id/entity_id/project_id/property_id that was missed, so the entry " +
+          "shows up in that record's history). Only the fields provided change; an empty " +
+          "string clears one (activity_type and activity_date cannot be cleared). Every field " +
+          "that actually changes is kept in an edit history with its old and new value, and " +
+          "the entry is marked edited — the activity log is evidence (procuring cause, first " +
+          "introduction), so rewrite a summary only to correct it, never to change what " +
+          "happened. An existing follow-up task is NOT changed — use update_task to re-date " +
+          "or reword it. If the edit gives an undated next step its first date, the follow-up " +
+          "task is created then (waiting_on_contact_id applies to it). There is no delete: " +
+          "void a mistaken entry by rewriting its summary as \"[VOID — reason] ...\" and " +
+          "clearing its links. Get the id from list_activity_log.",
+        inputSchema: {
+          id: z.string().min(1),
+          activity_type: z.string().optional(),
+          activity_date: z.string().optional(),
+          performed_by: z.string().optional(),
+          summary: z.string().optional(),
+          next_step: z.string().optional(),
+          next_step_due_date: z.string().optional(),
+          client_visible: z.boolean().optional(),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          project_id: z.string().optional(),
+          property_id: z.string().optional(),
+          waiting_on_contact_id: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("activity-log", args))
+    );
 
     // --- project_contacts links ---
     server.registerTool(
@@ -1877,7 +1915,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.13.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.14.0" },
     verboseLogs: true,
   }
 );

@@ -7,6 +7,7 @@ import { parseListParams, resolveSelect, runSearch } from "@/lib/listQuery";
 import {
   findNearMatches,
   blockingMatches,
+  nearMissWarning,
   duplicateBlockResponse,
 } from "@/lib/nearMatch";
 
@@ -310,7 +311,9 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(
     {
       contact: data,
-      ...(possible_duplicates.length > 0 ? { possible_duplicates } : {}),
+      ...(possible_duplicates.length > 0
+        ? { possible_duplicates, near_miss_warning: nearMissWarning("contact", possible_duplicates) }
+        : {}),
       ...(duplicate_check ? { duplicate_check } : {}),
     },
     { status: 201 }

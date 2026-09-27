@@ -3,42 +3,35 @@ import { supabase } from "./supabase";
 /**
  * Generates the next human-readable display code for a table, e.g. PROP-0001.
  *
- * Derived from the HIGHEST existing code, not the row count.
+ * As of 9/27/2026 (migration 021) this is a per-prefix counter in Postgres
+ * (`next_display_code`), not max + 1 computed here.
  *
- * It was count + 1 from 8/23/2026 until 9/15/2026, which was safe only while
- * rows were never removed. Migration 014 added delete_contact and
- * merge_contacts, making removal a normal operation for the first time — and
- * count + 1 after a delete points straight at a number that is already in
- * use, so the next insert either collides with the `display_code text unique`
- * constraint or, if the colliding row was the one deleted, quietly reissues a
- * code that still appears in notes, emails and exported lists as a different
- * person. Taking max + 1 means a retired code stays retired.
+ * History, because each version fixed the previous one's failure:
+ *   - 8/23/2026–9/15/2026: count + 1. Broke once rows could be deleted — the
+ *     next insert pointed at a number already in use.
+ *   - 9/15/2026–9/27/2026: max + 1. A retired code stayed retired UNLESS it
+ *     was the highest one, which is the usual case (the duplicate is almost
+ *     always the row just created). Observed 9/24/2026: PROP-0061 was merged
+ *     away and reissued to a different property four seconds later.
+ *   - Now: a counter that only ever increments. It also takes a row lock, so
+ *     two simultaneous inserts no longer read the same value, and compares
+ *     numbers rather than text, so CON-10000 is handled correctly.
  *
- * Two known limits, both acceptable for a single-user tool and both unchanged
- * from the previous implementation:
- *   - Not safe against concurrent inserts; two simultaneous calls can read
- *     the same max. A Postgres sequence per prefix is the fix if this ever
- *     goes multi-user.
- *   - Ordering is lexical, which is correct only while the numeric part stays
- *     four digits ("CON-9999" sorts above "CON-10000"). At ~64 contacts that
- *     is thousands of records away; revisit with the sequence change.
+ * The counter never falls behind the table: if a row was inserted with a code
+ * it didn't issue (a hand-run SQL load), the next call jumps past it.
  */
 export async function nextDisplayCode(
   table: string,
   prefix: string
 ): Promise<string> {
-  const { data, error } = await supabase
-    .from(table)
-    .select("display_code")
-    .like("display_code", `${prefix}-%`)
-    .order("display_code", { ascending: false })
-    .limit(1);
+  const { data, error } = await supabase.rpc("next_display_code", {
+    p_table: table,
+    p_prefix: prefix,
+  });
 
-  if (error) throw new Error(error.message);
-
-  const highest = data?.[0]?.display_code as string | null | undefined;
-  const parsed = highest ? Number.parseInt(highest.slice(prefix.length + 1), 10) : 0;
-  const n = (Number.isFinite(parsed) ? parsed : 0) + 1;
-
-  return `${prefix}-${String(n).padStart(4, "0")}`;
+  if (error) throw new Error(`Could not issue a ${prefix} display code: ${error.message}`);
+  if (typeof data !== "string" || !data.startsWith(`${prefix}-`)) {
+    throw new Error(`Could not issue a ${prefix} display code: unexpected response.`);
+  }
+  return data;
 }

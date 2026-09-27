@@ -393,7 +393,7 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
       )}
 
       <Section title="Activity" count={activity?.length ?? 0}>
-        <ActivityFeed rows={activity ?? []} hide="entity" />
+        <ActivityFeed rows={activity ?? []} hide="entity" returnPath={here} contacts={allContacts} />
       </Section>
     </div>
   );

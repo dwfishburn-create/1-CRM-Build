@@ -126,3 +126,32 @@ export function duplicateBlockResponse(
     { status: 409 }
   );
 }
+
+/**
+ * A plain-English warning for a create that SUCCEEDED while similar records
+ * exist (9/27/2026). The candidates were always returned, but as a bare
+ * `possible_duplicates` array they were easy to skim past — which is how
+ * "Kaizen Submission Grappling" vs "Kaizen Submission Group" (0.63) became two
+ * rows and was caught by a person. Never blocks; it only makes the report
+ * impossible to miss.
+ */
+export function nearMissWarning(
+  kind: "contact" | "entity" | "property",
+  candidates: unknown[]
+): string | undefined {
+  const below = (candidates as DuplicateCandidate[]).filter(
+    (c) => Number(c.score) < DUPLICATE_BLOCK_THRESHOLD
+  );
+  if (below.length === 0) return undefined;
+  const mergeTool =
+    kind === "contact" ? "merge_contacts" : kind === "entity" ? "merge_entities" : "merge_properties";
+  const list = below
+    .slice(0, 3)
+    .map((c) => `${c.display_code ?? c.id} (${c.reason})`)
+    .join("; ");
+  return (
+    `Created — but ${below.length} existing ${kind}${below.length === 1 ? "" : "s"} ` +
+    `look similar: ${list}. If one is the same ${kind}, fold this new record into it ` +
+    `with ${mergeTool} now, while nothing links to it yet.`
+  );
+}
