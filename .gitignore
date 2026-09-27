@@ -4,3 +4,4 @@ node_modules/
 .env.local
 .vercel
 *.log
+CRM_Requirements_and_Decisions_Log.md
