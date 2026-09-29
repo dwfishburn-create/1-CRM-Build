@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { runDeadlineWarnings } from "@/lib/deadlines";
 import { contactHref, entityHref, propertyHref } from "@/lib/records";
 import {
   addDays,
@@ -60,6 +61,16 @@ type LeaseEventRow = {
     space: { property: Prop | Prop[] | null } | { property: Prop | Prop[] | null }[] | null;
   } | null;
 };
+
+type DeadlineRow = {
+  id: string;
+  deadline_date: string | null;
+  amount: number | null;
+  type: { label: string; is_money: boolean } | { label: string; is_money: boolean }[] | null;
+  project: { project_code: string; status: string | null } | { project_code: string; status: string | null }[] | null;
+};
+
+type PastItem = { id: string; kind: "lease" | "deadline"; sortDate: string; date: string; text: string };
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
@@ -123,6 +134,16 @@ function flagFor(category: string | null): string {
 export default async function DashboardPage() {
   const today = todayCentral();
 
+  // Safety net for the daily cron (migration 022): issue any deadline warnings
+  // due today before reading tasks. Idempotent, so it costs nothing when the
+  // cron has already run. A failure here must never take the Dashboard down.
+  let warningError: string | null = null;
+  try {
+    await runDeadlineWarnings();
+  } catch (e) {
+    warningError = (e as Error).message;
+  }
+
   const { data: tasksData, error } = await supabase
     .from("tasks")
     .select(
@@ -145,6 +166,39 @@ export default async function DashboardPage() {
     .eq("is_completed", false)
     .returns<LeaseEventRow[]>();
   const events = eventsData ?? [];
+
+  const { data: deadlinesData } = await supabase
+    .from("project_deadlines")
+    .select("id, deadline_date, amount, type:deadline_types!deadline_type(label, is_money), project:projects!project_id(project_code, status)")
+    .eq("is_completed", false)
+    .not("deadline_date", "is", null)
+    .returns<DeadlineRow[]>();
+  const deadlines = (deadlinesData ?? []).filter((d) => one(d.project)?.status !== "closed_lost");
+  const deadlineText = (d: DeadlineRow) =>
+    `${one(d.project)?.project_code.split(" - ")[0] ?? "Project"} — ${one(d.type)?.label ?? "Deadline"}`;
+
+  // Client work vs prospecting (replaces the 9/27 interim rule): a task with
+  // no project is prospecting only when it came from RealNex AND is not about
+  // a client — neither a client entity nor a property carrying a client lease.
+  // client_leases is a UNION view, so PostgREST can't embed through it: read
+  // the lease ids, then their properties.
+  const [{ data: clientRows }, { data: clientLeaseRows }] = await Promise.all([
+    supabase.from("projects").select("client_entity_id").in("status", ["active", "closed_won"]).not("client_entity_id", "is", null),
+    supabase.from("client_leases").select("lease_id"),
+  ]);
+  const clientEntities = new Set((clientRows ?? []).map((r) => r.client_entity_id as string));
+  const clientProperties = new Set<string>();
+  const clientLeaseIds = Array.from(new Set((clientLeaseRows ?? []).map((r) => r.lease_id as string)));
+  if (clientLeaseIds.length) {
+    const { data: leaseRows } = await supabase
+      .from("leases")
+      .select("space:spaces(property_id)")
+      .in("id", clientLeaseIds);
+    for (const row of (leaseRows ?? []) as unknown as { space: { property_id: string } | { property_id: string }[] | null }[]) {
+      const space = one(row.space);
+      if (space?.property_id) clientProperties.add(space.property_id);
+    }
+  }
 
   // Latest activity per project, shown only when a row is opened.
   const projectIds = Array.from(new Set(tasks.map((t) => t.project_id).filter((x): x is string => !!x)));
@@ -170,7 +224,11 @@ export default async function DashboardPage() {
   const isNow = (t: TaskRow) => !t.due_date || t.due_date <= today;
   const mine = tasks.filter((t) => !one(t.waiting_on_contact));
   const nowTasks = mine.filter(isNow);
-  const isProspecting = (t: TaskRow) => t.source_system === "realnex" && !t.project_id;
+  const isProspecting = (t: TaskRow) =>
+    t.source_system === "realnex" &&
+    !t.project_id &&
+    !(one(t.entity) && clientEntities.has(one(t.entity)!.id)) &&
+    !(one(t.property) && clientProperties.has(one(t.property)!.id));
 
   function toRows(list: TaskRow[]): DashRow[] {
     const groups = new Map<string, TaskRow[]>();
@@ -273,6 +331,11 @@ export default async function DashboardPage() {
           items.push({ date: e.event_date, text: leaseEventText(e), flag: e.amount ? "Money due" : "Deadline" });
         }
       }
+      for (const d of deadlines) {
+        if (d.deadline_date! >= weekStart && d.deadline_date! <= weekEnd) {
+          items.push({ date: d.deadline_date!, text: deadlineText(d), flag: one(d.type)?.is_money ? "Money due" : "Contract" });
+        }
+      }
       items.sort((a, b) => a.date.localeCompare(b.date) || (b.flag ? 1 : 0) - (a.flag ? 1 : 0));
       const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
         .map((d) => ({
@@ -313,6 +376,11 @@ export default async function DashboardPage() {
       ahead.push({ date: e.event_date, text: leaseEventText(e), kind: "Lease date" });
     }
   }
+  for (const d of deadlines) {
+    if (d.deadline_date! > today && d.deadline_date! <= horizon) {
+      ahead.push({ date: d.deadline_date!, text: deadlineText(d), kind: one(d.type)?.is_money ? "Money due" : "Deal deadline" });
+    }
+  }
   ahead.sort((a, b) => a.date.localeCompare(b.date));
   const months: AheadData["months"] = [];
   for (const it of ahead) {
@@ -324,7 +392,14 @@ export default async function DashboardPage() {
   const pastDue = events
     .filter((e) => e.event_date && e.event_date < today)
     .sort((a, b) => (a.event_date ?? "").localeCompare(b.event_date ?? ""))
-    .map((e) => ({ id: e.id, date: monthDay(e.event_date!) + "/" + e.event_date!.slice(2, 4), text: leaseEventText(e) }));
+    .map((e): PastItem => ({ id: e.id, kind: "lease", sortDate: e.event_date!, date: monthDay(e.event_date!) + "/" + e.event_date!.slice(2, 4), text: leaseEventText(e) }))
+    .concat(
+      deadlines
+        .filter((d) => d.deadline_date! < today)
+        .map((d): PastItem => ({ id: d.id, kind: "deadline", sortDate: d.deadline_date!, date: monthDay(d.deadline_date!) + "/" + d.deadline_date!.slice(2, 4), text: deadlineText(d) }))
+    )
+    .sort((a, b) => a.sortDate.localeCompare(b.sortDate))
+    .map(({ id, kind, date, text }) => ({ id, kind, date, text }));
 
   // ---- Summary line ---------------------------------------------------------
   const overdue = nowTasks.filter((t) => t.due_date && t.due_date < today).length;
@@ -339,7 +414,7 @@ export default async function DashboardPage() {
     <DashboardView
       dateLabel={longDate(today)}
       summary={summary}
-      error={error?.message ?? null}
+      error={error?.message ?? warningError}
       deals={deals}
       prospects={prospects}
       waiting={waiting}

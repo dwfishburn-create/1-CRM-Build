@@ -1041,11 +1041,15 @@ server.registerTool(
           "strategic_weight_note are the Value/Probability/Expected-Value scoring fields (added " +
           "9/2/2026) — all optional at creation since deal terms are typically filled in later, " +
           "as Dan pulls deal documents into the project. deal_value and expected_value are " +
-          "computed automatically and can never be set directly.",
+          "computed automatically and can never be set directly. client_entity_id: the client's " +
+          "entity record (find_entity first) — set it whenever the client is on file; it is what " +
+          "makes the client's leases get lease-date warnings. status is active, on_hold, " +
+          "closed_won or closed_lost.",
         inputSchema: {
           project_code: z.string().min(1),
           project_type: z.string().min(1),
           client_name: z.string().min(1),
+          client_entity_id: z.string().optional(),
           status: z.string().optional(),
           start_date: z.string().optional(),
           target_close_date: z.string().optional(),
@@ -1071,12 +1075,16 @@ server.registerTool(
           "expected_value are computed automatically and can never be set directly. Added " +
           "9/2/2026 to close the gap where a spelling correction like Astlali Concina->Cocina " +
           "previously needed a raw SQL UPDATE; extended the same day for the Value/Probability/ " +
-          "Expected-Value scoring fields — see CRM_Requirements_and_Decisions_Log.md.",
+          "Expected-Value scoring fields — see CRM_Requirements_and_Decisions_Log.md. " +
+          "client_entity_id links the client's entity record (drives client-lease warnings). " +
+          "Setting status to closed_won on a TR or LRT project creates an 'enter the executed " +
+          "lease' task automatically.",
         inputSchema: {
           id: z.string().min(1),
           project_code: z.string().optional(),
           project_type: z.string().optional(),
           client_name: z.string().optional(),
+          client_entity_id: z.string().optional(),
           status: z.string().optional(),
           start_date: z.string().optional(),
           target_close_date: z.string().optional(),
@@ -1839,6 +1847,119 @@ server.registerTool(
       async (args) => toolResult(await agentApiPatch("lease-events", args))
     );
 
+    // --- project deadlines + warnings (migration 022, 9/29/2026) ---
+    server.registerTool(
+      "list_deadlines",
+      {
+        title: "List project deadlines",
+        description:
+          "List project deadlines — the contract dates Dan's own agreements run on (listing " +
+          "expiration, post-term tail, Existing Prospect List, PA effective, deposits, DD, " +
+          "objections, closing, LOI, delivery, rent commencement, option notice). Sorted by " +
+          "date, undated last. Filter by project_id, deadline_type, open (not completed), and " +
+          "a from/to date range (YYYY-MM-DD). include_types: true also returns the deadline_types " +
+          "vocabulary with each type's warning lead times — call it before create_deadline if " +
+          "unsure of a code.",
+        inputSchema: {
+          ...limitArg,
+          project_id: z.string().optional(),
+          deadline_type: z.string().optional(),
+          open: z.boolean().optional(),
+          from: z.string().optional(),
+          to: z.string().optional(),
+          include_types: z.boolean().optional(),
+        },
+      },
+      async ({ limit, project_id, deadline_type, open, from, to, include_types }) =>
+        toolResult(
+          await agentApiGet("deadlines", {
+            limit: limit?.toString(),
+            project_id,
+            deadline_type,
+            open: open === undefined ? undefined : String(open),
+            from,
+            to,
+            include_types: include_types ? "true" : undefined,
+          })
+        )
+    );
+    server.registerTool(
+      "create_deadline",
+      {
+        title: "Create project deadline",
+        description:
+          "Add a contract deadline to a project. project_id and deadline_type are required. " +
+          "deadline_type is a CLOSED list (codes): la_expiration, la_tail_end, prospect_list_due, " +
+          "la_extension_due, pa_effective, deposit_due, dd_expiration, title_objection, " +
+          "survey_objection, dd_status_report, financing_contingency, closing, outside_closing, " +
+          "loi_expiration, security_deposit_due, first_rent_due, delivery, rent_commencement, " +
+          "option_notice, other. " +
+          "DERIVED DATES ARE AUTOMATIC — do not create them by hand: an la_expiration creates " +
+          "la_tail_end (+120 days) and prospect_list_due (+15 business days); a pa_effective " +
+          "creates deposit_due. For pa_effective, ASK DAN how many days the purchase agreement " +
+          "gives for the deposit and pass it as deposit_offset_days (no default — if he doesn't " +
+          "know, omit it and the deposit row is created undated). If a derived date in the " +
+          "agreement differs from the rule, correct it with update_deadline. " +
+          "deadline_date may be omitted when the date isn't known (e.g. an unreadable " +
+          "extension) — say what's missing in notes and create a task to get it. Record where " +
+          "the date came from in source_document (file name and section). Load a deadline that " +
+          "has already passed and been handled with is_completed: true, or it will warn as " +
+          "overdue. Warnings reach the Dashboard as tasks on their lead dates (daily cron).",
+        inputSchema: {
+          ...provenanceArgs,
+          project_id: z.string().min(1),
+          deadline_type: z.string().min(1),
+          deadline_date: z.string().optional(),
+          amount: z.number().optional(),
+          deposit_offset_days: z.number().int().min(0).optional(),
+          is_completed: z.boolean().optional(),
+          source_document: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("deadlines", args))
+    );
+    server.registerTool(
+      "update_deadline",
+      {
+        title: "Update project deadline",
+        description:
+          "Change a project deadline by id. Only the fields provided change; an empty string " +
+          "clears notes/source_document/deadline_date. is_completed: true marks it handled and " +
+          "closes its open warning task on the Dashboard. Setting deadline_date on a DERIVED " +
+          "row (tail, prospect list, deposit) pins it, so later moves of its anchor no longer " +
+          "rewrite it; setting offset_days on a derived row re-dates it from its anchor (use " +
+          "this to date a deposit once Dan gives the days). Moving an anchor's date (e.g. an " +
+          "la_expiration after an extension is signed) moves its derived dates automatically.",
+        inputSchema: {
+          id: z.string().min(1),
+          deadline_type: z.string().optional(),
+          deadline_date: z.string().optional(),
+          amount: z.number().optional(),
+          offset_days: z.number().int().min(0).optional(),
+          is_completed: z.boolean().optional(),
+          source_document: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("deadlines", args))
+    );
+    server.registerTool(
+      "run_deadline_warnings",
+      {
+        title: "Run deadline warnings now",
+        description:
+          "Run the warning generator immediately instead of waiting for the daily 5 a.m. " +
+          "Central run — e.g. right after loading deadlines. Issues a Your Move task for each " +
+          "project deadline, and each lease date on a CLIENT lease (derived: tenant is a client " +
+          "on an active or closed-won project, or landlord/building is on one of Dan's " +
+          "listings), whose warning date has arrived. Idempotent: a second run the same day " +
+          "issues 0. Returns { issued }.",
+        inputSchema: {},
+      },
+      async () => toolResult(await agentApiPost("deadline-warnings", {}))
+    );
+
     // --- property_expenses (Phase 2, migration 012) ---
     server.registerTool(
       "list_property_expenses",
@@ -1915,7 +2036,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.14.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.15.0" },
     verboseLogs: true,
   }
 );

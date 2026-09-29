@@ -8,7 +8,7 @@ import {
   redateTaskFromDashboard,
   retirePreview,
 } from "./actions";
-import { completeLeaseEventAction } from "./lease-event-actions";
+import { completeDeadlineAction, completeLeaseEventAction } from "./lease-event-actions";
 
 export type DashTask = {
   id: string;
@@ -48,7 +48,7 @@ export type PreviewData = {
 };
 export type AheadData = {
   months: { label: string; items: { date: string; text: string; kind: string }[] }[];
-  pastDue: { id: string; date: string; text: string }[];
+  pastDue: { id: string; kind: "lease" | "deadline"; date: string; text: string }[];
 };
 
 const label = "text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400";
@@ -215,12 +215,12 @@ export default function DashboardView(props: {
           </div>
           {props.ahead.pastDue.length > 0 && (
             <div className="flex flex-col gap-2">
-              <div className={label}>Past lease dates not yet marked done</div>
+              <div className={label}>Past dates not yet marked done</div>
               {props.ahead.pastDue.map((e) => (
                 <div key={e.id} className="flex items-center gap-4 text-sm border-b border-gray-200 dark:border-neutral-800 py-1">
                   <span className="w-20 shrink-0 font-mono text-gray-500 dark:text-gray-400">{e.date}</span>
                   <span className="flex-1 min-w-0 text-gray-800 dark:text-gray-200">{e.text}</span>
-                  <form action={completeLeaseEventAction}>
+                  <form action={e.kind === "deadline" ? completeDeadlineAction : completeLeaseEventAction}>
                     <input type="hidden" name="id" value={e.id} />
                     <button type="submit" className={btn}>Mark done</button>
                   </form>

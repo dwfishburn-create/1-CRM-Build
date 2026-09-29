@@ -12,6 +12,8 @@ import {
   removeReferenceLink,
   updateProjectValue,
 } from "./actions";
+import { setProjectClient } from "./deadline-actions";
+import DeadlinesSection from "./DeadlinesSection";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +32,7 @@ type Project = {
   probability_pct: number | null;
   expected_value: number | null;
   strategic_weight_note: string | null;
+  client_entity_id: string | null;
 };
 
 type CandidateRow = {
@@ -134,7 +137,7 @@ export default async function ProjectDetailPage(
     supabase
       .from("projects")
       .select(
-        "id, project_code, project_type, client_name, status, start_date, target_close_date, notes, deal_price, commission_rate, deal_value, probability_pct, expected_value, strategic_weight_note"
+        "id, project_code, project_type, client_name, status, start_date, target_close_date, notes, deal_price, commission_rate, deal_value, probability_pct, expected_value, strategic_weight_note, client_entity_id"
       )
       .eq("id", id)
       .maybeSingle()
@@ -221,6 +224,33 @@ export default async function ProjectDetailPage(
           {project.notes}
         </p>
       )}
+
+      <form action={setProjectClient} className="flex flex-wrap items-end gap-3 mb-8 text-sm">
+        <input type="hidden" name="project_id" value={project.id} />
+        <label>
+          Client record
+          <select
+            name="client_entity_id"
+            defaultValue={project.client_entity_id ?? ""}
+            className="border border-gray-300 rounded px-3 py-2 mt-1 block min-w-72"
+          >
+            <option value="">Not linked</option>
+            {(allEntities ?? []).map((e) => (
+              <option key={e.id} value={e.id}>
+                {entityLabel(e)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className="border border-gray-300 rounded px-3 py-2">
+          Save client
+        </button>
+        <span className="text-gray-500 basis-full">
+          The client&apos;s leases get lease-date warnings on the Dashboard.
+        </span>
+      </form>
+
+      <DeadlinesSection projectId={project.id} />
 
       <h2 className="text-lg font-semibold mb-1">Deal value &amp; priority</h2>
       <p className="text-gray-500 mb-4 text-sm">

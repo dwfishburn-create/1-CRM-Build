@@ -85,6 +85,10 @@ export async function POST(request: NextRequest) {
     notes,
     strategic_weight_note,
   };
+  // client_entity_id (migration 022): the client's entity record. Drives the
+  // client-lease derivation, so set it whenever the client is on file.
+  const client_entity_id = String(body.client_entity_id || "").trim();
+  if (client_entity_id) insertPayload.client_entity_id = client_entity_id;
 
   for (const field of ["deal_price", "commission_rate", "probability_pct"] as const) {
     const raw = body[field];
@@ -160,6 +164,7 @@ export async function PATCH(request: NextRequest) {
     "target_close_date",
     "notes",
     "strategic_weight_note",
+    "client_entity_id",
   ] as const;
   const numericFields = [
     "deal_price",
