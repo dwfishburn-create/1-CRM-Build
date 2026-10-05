@@ -46,3 +46,27 @@ select option {
   background-color: #ffffff;
   color: #171717;
 }
+
+/* Dark mode readability (10/5/2026, Dan: "the low-lighted text is too dark").
+   Most screens were styled for a white page — text-gray-500/600/700 as the
+   secondary color — and only some carry dark: variants. On the #0a0a0a dark
+   background those shades fall to roughly 2.6:1 (gray-600) or worse, which is
+   the dim label / note / metadata text Dan flagged. In dark mode the muted
+   grays are lifted to light grays that keep the same order of emphasis
+   (lighter = more prominent on a dark page), all at 7:1 or better.
+   These rules are unlayered, so they win over Tailwind's utilities; the
+   :not([class*="bg-"]) guard leaves small badges that carry their own light
+   background (e.g. "bg-gray-100 text-gray-600") alone. */
+@media (prefers-color-scheme: dark) {
+  .text-gray-400:not([class*="bg-"]) { color: #a8adb7; }
+  .text-gray-500:not([class*="bg-"]) { color: #bcc1c9; }
+  .text-gray-600:not([class*="bg-"]) { color: #d0d4da; }
+  .text-gray-700:not([class*="bg-"]),
+  .text-gray-800:not([class*="bg-"]),
+  .text-gray-900:not([class*="bg-"]) { color: #e5e7eb; }
+  .text-blue-700:not([class*="bg-"]),
+  .text-blue-600:not([class*="bg-"]) { color: #6ea8fe; }
+  /* Light hover fills turned light text unreadable on hover. */
+  .hover\:bg-gray-50:hover,
+  .hover\:bg-gray-100:hover { background-color: #262626; }
+}

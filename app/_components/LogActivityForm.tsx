@@ -1,5 +1,6 @@
 import { logActivityAction } from "./recordActions";
 import { ActionForm } from "./ActionForm";
+import { TypePicker } from "./TypePicker";
 import { todayCentral, type Option } from "@/lib/contactOptions";
 
 // Log Activity form for the Contact, Property and Entity pages (9/24/2026,
@@ -56,12 +57,7 @@ export function LogActivityForm({
 
         <label className="text-xs text-gray-600">
           Type
-          <input name="activity_type" list="activity-types" required className={input} defaultValue="Call" />
-          <datalist id="activity-types">
-            {TYPES.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
+          <TypePicker types={TYPES} className={input} />
         </label>
         <label className="text-xs text-gray-600">
           Date
