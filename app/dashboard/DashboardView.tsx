@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   bumpTaskFromDashboard,
-  completeTaskFromDashboard,
+  finishTaskDone,
+  finishTaskCancel,
+  handleDateFromDashboard,
   redateTaskFromDashboard,
   retirePreview,
 } from "./actions";
-import { completeDeadlineAction, completeLeaseEventAction } from "./lease-event-actions";
 
 export type DashTask = {
   id: string;
@@ -57,6 +58,8 @@ export type AheadData = {
 const label = "text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400";
 const btn =
   "inline-flex items-center justify-center min-h-11 px-4 rounded-lg text-sm border border-gray-300 dark:border-neutral-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-neutral-800";
+const noteInput =
+  "min-h-11 flex-1 min-w-64 rounded-lg border border-gray-300 px-3 text-sm";
 const btnSolid =
   "inline-flex items-center justify-center min-h-11 px-4 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-neutral-700 dark:hover:bg-neutral-600";
 
@@ -110,28 +113,44 @@ function Row({ row, dim }: { row: DashRow; dim?: boolean }) {
                 </div>
               )}
               <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{t.description}</p>
+              {t.source && (
+                <form action={handleDateFromDashboard} className="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="task_id" value={t.id} />
+                  <input type="hidden" name="source_id" value={t.source.id} />
+                  <input type="hidden" name="kind" value={t.source.kind} />
+                  <input
+                    name="note"
+                    required
+                    aria-label="Outcome"
+                    placeholder="Outcome (required) — e.g. option not exercised; closing at expiration"
+                    className={noteInput}
+                  />
+                  <button type="submit" className={btnSolid}>
+                    {t.source.kind === "deadline" ? "Deadline handled" : "Lease date handled"}
+                  </button>
+                </form>
+              )}
+              <form className="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="id" value={t.id} />
+                <input
+                  name="note"
+                  aria-label="Note"
+                  placeholder="Note (optional) — saved to the record's history"
+                  className={noteInput}
+                />
+                <button
+                  type="submit"
+                  formAction={finishTaskDone}
+                  className={t.source ? btn : btnSolid}
+                  title={t.source ? "Clears this reminder. The next lead time still warns." : undefined}
+                >
+                  {t.source ? "Got it" : "Mark done"}
+                </button>
+                <button type="submit" formAction={finishTaskCancel} className={btn}>
+                  Cancel task
+                </button>
+              </form>
               <div className="flex flex-wrap items-center gap-2">
-                {t.source ? (
-                  <>
-                    <form action={t.source.kind === "deadline" ? completeDeadlineAction : completeLeaseEventAction}>
-                      <input type="hidden" name="id" value={t.source.id} />
-                      <button type="submit" className={btnSolid}>
-                        {t.source.kind === "deadline" ? "Deadline handled" : "Lease date handled"}
-                      </button>
-                    </form>
-                    <form action={completeTaskFromDashboard}>
-                      <input type="hidden" name="id" value={t.id} />
-                      <button type="submit" className={btn} title="Clears this reminder. The next lead time still warns.">
-                        Got it
-                      </button>
-                    </form>
-                  </>
-                ) : (
-                  <form action={completeTaskFromDashboard}>
-                    <input type="hidden" name="id" value={t.id} />
-                    <button type="submit" className={btnSolid}>Mark done</button>
-                  </form>
-                )}
                 <form action={bumpTaskFromDashboard}>
                   <input type="hidden" name="id" value={t.id} />
                   <input type="hidden" name="days" value="1" />
@@ -203,9 +222,16 @@ function WaitingLine({ w }: { w: WaitingRow }) {
         <div className="pb-4 md:pl-6 flex flex-col gap-3">
           <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{w.description}</p>
           <div className="flex flex-wrap items-center gap-2">
-            <form action={completeTaskFromDashboard}>
+            <form className="flex flex-wrap items-center gap-2 w-full">
               <input type="hidden" name="id" value={w.id} />
-              <button type="submit" className={btnSolid}>Done — heard back</button>
+              <input
+                name="note"
+                aria-label="Note"
+                placeholder="Note (optional) — what they said"
+                className={noteInput}
+              />
+              <button type="submit" formAction={finishTaskDone} className={btnSolid}>Done — heard back</button>
+              <button type="submit" formAction={finishTaskCancel} className={btn}>Cancel task</button>
             </form>
             <form action={bumpTaskFromDashboard}>
               <input type="hidden" name="id" value={w.id} />
@@ -289,12 +315,20 @@ export default function DashboardView(props: {
             <div className="flex flex-col gap-2">
               <div className={label}>Past dates not yet marked done</div>
               {props.ahead.pastDue.map((e) => (
-                <div key={e.id} className="flex items-center gap-4 text-sm border-b border-gray-200 dark:border-neutral-800 py-1">
+                <div key={e.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm border-b border-gray-200 dark:border-neutral-800 py-2">
                   <span className="w-20 shrink-0 font-mono text-gray-500 dark:text-gray-400">{e.date}</span>
                   <span className="flex-1 min-w-0 text-gray-800 dark:text-gray-200">{e.text}</span>
-                  <form action={e.kind === "deadline" ? completeDeadlineAction : completeLeaseEventAction}>
-                    <input type="hidden" name="id" value={e.id} />
-                    <button type="submit" className={btn}>Mark done</button>
+                  <form action={handleDateFromDashboard} className="flex flex-wrap items-center gap-2 w-full">
+                    <input type="hidden" name="source_id" value={e.id} />
+                    <input type="hidden" name="kind" value={e.kind === "deadline" ? "deadline" : "lease"} />
+                    <input
+                      name="note"
+                      required
+                      aria-label="Outcome"
+                      placeholder="Outcome (required) — what happened with this date"
+                      className={noteInput}
+                    />
+                    <button type="submit" className={btn}>Mark handled</button>
                   </form>
                 </div>
               ))}
