@@ -90,6 +90,7 @@ type SignalRow = {
 
 export default async function ContactDetailPage(props: PageProps<"/contacts/[id]">) {
   const { id } = await props.params;
+  const openLog = (await props.searchParams)?.log === "1";
 
   const results = await Promise.all([
     supabase
@@ -223,6 +224,7 @@ export default async function ContactDetailPage(props: PageProps<"/contacts/[id]
       <NotesBox text={contact.notes} />
 
       <LogActivityForm
+        defaultOpen={openLog}
         returnPath={here}
         contactId={contact.id}
         entityId={company?.id}

@@ -246,7 +246,7 @@ export function ActivityFeed({
   contacts = [],
 }: {
   rows: ActivityLite[];
-  hide?: "contact" | "entity" | "property";
+  hide?: "contact" | "entity" | "property" | "project";
   returnPath?: string;
   contacts?: Option[];
 }) {
@@ -257,7 +257,7 @@ export function ActivityFeed({
         const c = hide === "contact" ? null : one(a.contact ?? null);
         const e = hide === "entity" ? null : one(a.entity ?? null);
         const p = hide === "property" ? null : one(a.property ?? null);
-        const pr = one(a.project ?? null);
+        const pr = hide === "project" ? null : one(a.project ?? null);
         return (
           <div key={a.id} className="border border-gray-200 rounded-lg p-3">
             <p className="text-xs text-gray-400">

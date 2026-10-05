@@ -14,6 +14,17 @@ import {
 } from "./actions";
 import { setProjectClient } from "./deadline-actions";
 import DeadlinesSection from "./DeadlinesSection";
+import { LogActivityForm } from "@/app/_components/LogActivityForm";
+import {
+  ActivityFeed,
+  ACTIVITY_SELECT,
+  Section,
+  TASK_SELECT,
+  TaskList,
+  type ActivityLite,
+  type TaskLite,
+} from "@/app/_components/RecordParts";
+import { contactOptions } from "@/lib/contactOptions";
 
 export const dynamic = "force-dynamic";
 
@@ -124,6 +135,8 @@ export default async function ProjectDetailPage(
   props: PageProps<"/projects/[id]">
 ) {
   const { id } = await props.params;
+  const openLog = (await props.searchParams)?.log === "1";
+  const here = `/projects/${id}`;
 
   const [
     { data: project },
@@ -183,6 +196,27 @@ export default async function ProjectDetailPage(
 
   if (!project) notFound();
 
+  // Log activity, open tasks and the activity history on the deal page
+  // (10/5/2026). The Dashboard's link for a deal's tasks pointed here, but the
+  // page had no way to log anything — Dan was left looking for where notes go.
+  const [{ data: tasks }, { data: activity }, contactOpts] = await Promise.all([
+    supabase
+      .from("tasks")
+      .select(TASK_SELECT)
+      .eq("status", "open")
+      .eq("project_id", id)
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .returns<TaskLite[]>(),
+    supabase
+      .from("activity_log")
+      .select(ACTIVITY_SELECT)
+      .eq("project_id", id)
+      .order("activity_date", { ascending: false })
+      .limit(100)
+      .returns<ActivityLite[]>(),
+    contactOptions(),
+  ]);
+
   const linkedIds = new Set((candidates ?? []).map((c) => oneProperty(c.property)?.id));
   const availableProperties = (allProperties ?? []).filter(
     (p) => !linkedIds.has(p.id)
@@ -224,6 +258,22 @@ export default async function ProjectDetailPage(
           {project.notes}
         </p>
       )}
+
+      <LogActivityForm
+        defaultOpen={openLog}
+        returnPath={here}
+        projectId={project.id}
+        preferredContacts={contactOpts.filter((c) => linkedContactIds.has(c.id))}
+        allContacts={contactOpts}
+      />
+
+      <Section title="Open tasks" count={tasks?.length ?? 0}>
+        <TaskList tasks={tasks ?? []} returnPath={here} contacts={contactOpts} />
+      </Section>
+
+      <Section title="Activity" count={activity?.length ?? 0}>
+        <ActivityFeed rows={activity ?? []} hide="project" returnPath={here} contacts={contactOpts} />
+      </Section>
 
       <form action={setProjectClient} className="flex flex-wrap items-end gap-3 mb-8 text-sm">
         <input type="hidden" name="project_id" value={project.id} />

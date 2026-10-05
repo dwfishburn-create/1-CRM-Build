@@ -119,6 +119,7 @@ type RefLink = { id: string; label: string; url: string | null; link_type: strin
 
 export default async function PropertyDetailPage(props: PageProps<"/properties/[id]">) {
   const { id } = await props.params;
+  const openLog = (await props.searchParams)?.log === "1";
 
   const { data: property } = await supabase
     .from("properties")
@@ -280,6 +281,7 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
       <NotesBox text={property.notes} />
 
       <LogActivityForm
+        defaultOpen={openLog}
         returnPath={here}
         propertyId={property.id}
         projects={(candidates ?? [])

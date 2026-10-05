@@ -61,6 +61,7 @@ type SignalRow = { id: string; signal_date: string; signal_type: string; indicat
 
 export default async function EntityDetailPage(props: PageProps<"/entities/[id]">) {
   const { id } = await props.params;
+  const openLog = (await props.searchParams)?.log === "1";
 
   const results = await Promise.all([
     supabase
@@ -226,6 +227,7 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
       <NotesBox text={entity.notes} />
 
       <LogActivityForm
+        defaultOpen={openLog}
         returnPath={here}
         entityId={entity.id}
         projects={(projectLinks ?? [])

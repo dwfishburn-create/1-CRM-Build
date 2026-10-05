@@ -28,6 +28,8 @@ export function LogActivityForm({
   contactId,
   entityId,
   propertyId,
+  projectId,
+  defaultOpen = false,
   projects = [],
   preferredContacts = [],
   allContacts = [],
@@ -36,6 +38,10 @@ export function LogActivityForm({
   contactId?: string;
   entityId?: string;
   propertyId?: string;
+  /** On a deal's own page: the activity is filed to this deal, no picker. */
+  projectId?: string;
+  /** Opened when arriving from the Dashboard's "Log activity" link. */
+  defaultOpen?: boolean;
   projects?: Option[];
   preferredContacts?: Option[];
   allContacts?: Option[];
@@ -45,7 +51,7 @@ export function LogActivityForm({
   const input = "border border-gray-300 rounded px-2 py-1 text-sm w-full";
 
   return (
-    <details className="mb-8 border border-gray-200 rounded-lg">
+    <details id="log-activity" open={defaultOpen} className="mb-8 border border-gray-200 rounded-lg scroll-mt-4">
       <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-blue-700 select-none">
         + Log activity
       </summary>
@@ -54,6 +60,7 @@ export function LogActivityForm({
         {contactId && <input type="hidden" name="contact_id" value={contactId} />}
         {entityId && <input type="hidden" name="entity_id" value={entityId} />}
         {propertyId && <input type="hidden" name="property_id" value={propertyId} />}
+        {projectId && <input type="hidden" name="project_id" value={projectId} />}
 
         <label className="text-xs text-gray-600">
           Type
@@ -63,7 +70,7 @@ export function LogActivityForm({
           Date
           <input name="activity_date" type="date" defaultValue={todayCentral()} className={input} />
         </label>
-        {projects.length > 0 ? (
+        {!projectId && projects.length > 0 ? (
           <label className="text-xs text-gray-600 col-span-2">
             Deal (optional)
             <select name="project_id" className={input} defaultValue="">

@@ -189,8 +189,8 @@ function Row({ row, dim }: { row: DashRow; dim?: boolean }) {
             </p>
           )}
           {row.href && (
-            <Link href={row.href} className="text-sm text-blue-600 dark:text-blue-400 hover:underline self-start min-h-11 inline-flex items-center">
-              Open the record to log activity →
+            <Link href={`${row.href}?log=1#log-activity`} className="text-sm text-blue-600 dark:text-blue-400 hover:underline self-start min-h-11 inline-flex items-center">
+              Log activity on {row.context || "this record"} →
             </Link>
           )}
         </div>
