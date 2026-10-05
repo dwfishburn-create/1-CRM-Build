@@ -17,6 +17,8 @@ export type DashTask = {
   description: string;
   due: string;
   category: string;
+  /** Set when the warning generator created this task (migration 023). */
+  source: { kind: "deadline" | "lease"; id: string } | null;
 };
 export type DashRow = {
   key: string;
@@ -31,6 +33,7 @@ export type DashRow = {
 };
 export type WaitingRow = {
   id: string;
+  description: string;
   who: string;
   whoHref: string;
   what: string;
@@ -108,10 +111,27 @@ function Row({ row, dim }: { row: DashRow; dim?: boolean }) {
               )}
               <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{t.description}</p>
               <div className="flex flex-wrap items-center gap-2">
-                <form action={completeTaskFromDashboard}>
-                  <input type="hidden" name="id" value={t.id} />
-                  <button type="submit" className={btnSolid}>Mark done</button>
-                </form>
+                {t.source ? (
+                  <>
+                    <form action={t.source.kind === "deadline" ? completeDeadlineAction : completeLeaseEventAction}>
+                      <input type="hidden" name="id" value={t.source.id} />
+                      <button type="submit" className={btnSolid}>
+                        {t.source.kind === "deadline" ? "Deadline handled" : "Lease date handled"}
+                      </button>
+                    </form>
+                    <form action={completeTaskFromDashboard}>
+                      <input type="hidden" name="id" value={t.id} />
+                      <button type="submit" className={btn} title="Clears this reminder. The next lead time still warns.">
+                        Got it
+                      </button>
+                    </form>
+                  </>
+                ) : (
+                  <form action={completeTaskFromDashboard}>
+                    <input type="hidden" name="id" value={t.id} />
+                    <button type="submit" className={btnSolid}>Mark done</button>
+                  </form>
+                )}
                 <form action={bumpTaskFromDashboard}>
                   <input type="hidden" name="id" value={t.id} />
                   <input type="hidden" name="days" value="1" />
@@ -121,6 +141,11 @@ function Row({ row, dim }: { row: DashRow; dim?: boolean }) {
                   <input type="hidden" name="id" value={t.id} />
                   <input type="hidden" name="days" value="7" />
                   <button type="submit" className={btn}>+1 week</button>
+                </form>
+                <form action={bumpTaskFromDashboard}>
+                  <input type="hidden" name="id" value={t.id} />
+                  <input type="hidden" name="days" value="30" />
+                  <button type="submit" className={btn}>+1 month</button>
                 </form>
                 <form action={redateTaskFromDashboard} className="flex items-center gap-2">
                   <input type="hidden" name="id" value={t.id} />
@@ -149,6 +174,53 @@ function Row({ row, dim }: { row: DashRow; dim?: boolean }) {
               Open the record to log activity →
             </Link>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Waiting On rows (10/5/2026): click to open, then the same quick actions as
+// Your Move — the reply came in (done), or push the follow-up out.
+function WaitingLine({ w }: { w: WaitingRow }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-gray-100 dark:border-neutral-800">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="w-full text-left flex flex-wrap items-center gap-x-4 gap-y-1 min-h-12 py-2 md:pl-6"
+      >
+        <span className="flex-1 min-w-0 text-[15px] text-gray-900 dark:text-gray-100">
+          {w.who}
+          <span className="text-gray-500 dark:text-gray-400"> — {w.what}</span>
+        </span>
+        <span className="hidden md:block w-72 shrink-0 truncate text-sm text-gray-500 dark:text-gray-400">{w.context}</span>
+        <span className={`text-sm ${w.late ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>{w.since}</span>
+      </button>
+      {open && (
+        <div className="pb-4 md:pl-6 flex flex-col gap-3">
+          <p className="text-sm leading-relaxed text-gray-700 dark:text-gray-300">{w.description}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <form action={completeTaskFromDashboard}>
+              <input type="hidden" name="id" value={w.id} />
+              <button type="submit" className={btnSolid}>Done — heard back</button>
+            </form>
+            <form action={bumpTaskFromDashboard}>
+              <input type="hidden" name="id" value={w.id} />
+              <input type="hidden" name="days" value="3" />
+              <button type="submit" className={btn}>Nudge in 3 days</button>
+            </form>
+            <form action={bumpTaskFromDashboard}>
+              <input type="hidden" name="id" value={w.id} />
+              <input type="hidden" name="days" value="7" />
+              <button type="submit" className={btn}>+1 week</button>
+            </form>
+            <Link href={w.whoHref} className="text-sm text-blue-600 dark:text-blue-400 hover:underline min-h-11 inline-flex items-center">
+              Open {w.who} →
+            </Link>
+          </div>
         </div>
       )}
     </div>
@@ -322,14 +394,7 @@ export default function DashboardView(props: {
       <section className="flex flex-col gap-1">
         <h2 className={`${label} mb-2`}>Waiting on</h2>
         {props.waiting.map((w) => (
-          <div key={w.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 min-h-12 py-2 border-b border-gray-100 dark:border-neutral-800 md:pl-6">
-            <span className="flex-1 min-w-0 text-[15px] text-gray-900 dark:text-gray-100">
-              <Link href={w.whoHref} className="hover:underline">{w.who}</Link>
-              <span className="text-gray-500 dark:text-gray-400"> — {w.what}</span>
-            </span>
-            <span className="hidden md:block w-72 shrink-0 truncate text-sm text-gray-500 dark:text-gray-400">{w.context}</span>
-            <span className={`text-sm ${w.late ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>{w.since}</span>
-          </div>
+          <WaitingLine key={w.id} w={w} />
         ))}
         {props.waiting.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">Not waiting on anyone.</p>}
       </section>

@@ -220,6 +220,30 @@ export default async function DashboardPage() {
     }
   }
 
+  // Which open tasks the warning generator created, and what each warns about
+  // (10/5/2026, migration 023). Those rows get "Got it" (clears the reminder;
+  // the next lead time still warns) and "Deadline / Lease date handled" (marks
+  // the date itself done, which closes the task). Warnings attached to a task
+  // Dan wrote himself are not listed — his task keeps the plain "Mark done".
+  const warningSource = new Map<string, { kind: "deadline" | "lease"; id: string }>();
+  const openIds = tasks.map((t) => t.id);
+  if (openIds.length) {
+    const { data: warnRows } = await supabase
+      .from("deadline_warnings")
+      .select("task_id, source_kind, source_id, created_at")
+      .in("task_id", openIds)
+      .eq("attached", false)
+      .order("created_at", { ascending: false });
+    for (const w of warnRows ?? []) {
+      if (w.task_id && !warningSource.has(w.task_id)) {
+        warningSource.set(w.task_id, {
+          kind: w.source_kind === "project_deadline" ? "deadline" : "lease",
+          id: w.source_id,
+        });
+      }
+    }
+  }
+
   // ---- Today: your move, split into deals and prospecting -----------------
   const isNow = (t: TaskRow) => !t.due_date || t.due_date <= today;
   const mine = tasks.filter((t) => !one(t.waiting_on_contact));
@@ -233,7 +257,16 @@ export default async function DashboardPage() {
   function toRows(list: TaskRow[]): DashRow[] {
     const groups = new Map<string, TaskRow[]>();
     for (const t of list) {
-      const key = t.project_id ? `p:${t.project_id}` : `t:${t.id}`;
+      // One row per project; without a project, one row per lease (same
+      // property and tenant) so a lease's warnings and Dan's own task on it
+      // read as one conversation (10/5/2026).
+      const ent = one(t.entity);
+      const prop = one(t.property);
+      const key = t.project_id
+        ? `p:${t.project_id}`
+        : ent && prop
+        ? `l:${prop.id}:${ent.id}`
+        : `t:${t.id}`;
       groups.set(key, [...(groups.get(key) ?? []), t]);
     }
     const rows: (DashRow & { sortDue: string; ev: number })[] = [];
@@ -258,6 +291,7 @@ export default async function DashboardPage() {
           description: t.description,
           due: dueLabel(t.due_date, today).text,
           category: t.category ?? "",
+          source: warningSource.get(t.id) ?? null,
         })),
         sortDue: lead.due_date ?? "9999-12-31",
         ev: one(lead.project)?.expected_value ?? 0,
@@ -292,6 +326,7 @@ export default async function DashboardPage() {
       }
       return {
         id: t.id,
+        description: t.description,
         who: personName(who),
         whoHref: contactHref(who.id),
         what: titleOf(t),
