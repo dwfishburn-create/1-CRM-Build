@@ -11,13 +11,23 @@ import { startTransition, useActionState, useEffect, useRef, type ReactNode } fr
 // The action returns a FormResult rather than throwing. On an error the
 // message shows in red under the fields and every field keeps its value; on
 // success the fields reset, and any warning (e.g. "activity saved, but the
-// follow-up task was not created") shows in amber.
+// follow-up task was not created") shows in amber. When a web add form
+// finds existing look-alikes, they are listed as links with a "create it
+// anyway" box, so the record Dan meant is one click away.
 //
 // Submission goes through onSubmit + startTransition rather than <form
 // action>, because React resets a form after any action submission —
 // including one that failed — which is exactly the lost-input problem.
 
-export type FormResult = { ok: boolean; error?: string; warning?: string; at: number } | null;
+export type FormMatch = { label: string; href: string };
+export type FormResult = {
+  ok: boolean;
+  error?: string;
+  warning?: string;
+  /** Existing records the new one looks like (web add forms, 10/5/2026). */
+  matches?: FormMatch[];
+  at: number;
+} | null;
 
 export function ActionForm({
   action,
@@ -54,6 +64,23 @@ export function ActionForm({
         <p role="alert" className="col-span-full text-sm text-red-600">
           Not saved — {state.error}
         </p>
+      )}
+      {!pending && state?.matches && state.matches.length > 0 && (
+        <div className="col-span-full flex flex-col gap-1 text-sm">
+          <ul className="list-disc pl-5">
+            {state.matches.map((m) => (
+              <li key={m.href}>
+                <a href={m.href} className="text-blue-600 underline">
+                  {m.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <label className="flex items-center gap-2 text-gray-600">
+            <input type="checkbox" name="allow_duplicate" value="true" />
+            It&apos;s a different one — create it anyway
+          </label>
+        </div>
       )}
       {!pending && state?.ok && state.warning && (
         <p role="status" className="col-span-full text-sm text-amber-600">

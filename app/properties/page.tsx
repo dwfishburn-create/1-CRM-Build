@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createProperty } from "./actions";
+import { ActionForm } from "../_components/ActionForm";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,11 @@ export default async function PropertiesPage() {
     <div className="p-8 max-w-5xl mx-auto">
       <h1 className="text-2xl font-semibold mb-6">Properties</h1>
 
-      <form
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">
+        Add a new property
+      </h2>
+
+      <ActionForm
         action={createProperty}
         className="grid grid-cols-2 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
       >
@@ -145,7 +150,7 @@ export default async function PropertiesPage() {
         >
           Add property
         </button>
-      </form>
+      </ActionForm>
 
       {error && (
         <p className="text-red-600 mb-4">

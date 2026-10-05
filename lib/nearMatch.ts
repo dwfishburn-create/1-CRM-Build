@@ -155,3 +155,47 @@ export function nearMissWarning(
     `with ${mergeTool} now, while nothing links to it yet.`
   );
 }
+
+// ---------------------------------------------------------------------------
+// Web add forms (10/5/2026)
+//
+// The 9/24 gate covered only the Agent API, so the Properties / Contacts /
+// Entities add forms on the web went straight to INSERT. On 10/5/2026 two
+// empty properties ("16819" and "16819 Q st") were created by typing into the
+// Properties add form as if it were a search box — both duplicates of
+// PROP-0001. On the web a person is looking at the result, so the bar is lower
+// than the API's: anything at or above WEB_CONFIRM_THRESHOLD is shown, and the
+// create needs an explicit "it's a different one" tick. ("16819" alone scores
+// 0.75 against "16819 Q St" — under the API's 0.8 block, which is why the
+// threshold here is separate.)
+// ---------------------------------------------------------------------------
+
+export const WEB_CONFIRM_THRESHOLD = 0.6;
+
+/** Candidates worth stopping a web create for, as link-ready labels. */
+export async function webLookalikes(
+  kind: "contact" | "entity" | "property",
+  args: Record<string, unknown>
+): Promise<{ label: string; href: string }[]> {
+  const rpc =
+    kind === "contact"
+      ? "find_similar_contacts"
+      : kind === "entity"
+        ? "find_similar_entities"
+        : "find_similar_properties";
+  const near = await findNearMatches(rpc, args);
+  if (!near.ok) return []; // a broken check must not block the form
+  const base = kind === "contact" ? "/contacts" : kind === "entity" ? "/entities" : "/properties";
+  return near.candidates
+    .filter((c) => Number(c.score) >= WEB_CONFIRM_THRESHOLD)
+    .map((c) => {
+      const name =
+        kind === "property"
+          ? [c.address, c.suite_number ? `Ste ${c.suite_number}` : null, c.city].filter(Boolean).join(", ")
+          : String(c.name ?? "");
+      return {
+        label: `${c.display_code ?? ""} — ${name} (${c.reason})`,
+        href: `${base}/${c.id}`,
+      };
+    });
+}

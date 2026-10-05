@@ -56,7 +56,7 @@ export function LogActivityForm({
 
         <label className="text-xs text-gray-600">
           Type
-          <input name="activity_type" list="activity-types" required className={input} placeholder="Call" />
+          <input name="activity_type" list="activity-types" required className={input} defaultValue="Call" />
           <datalist id="activity-types">
             {TYPES.map((t) => (
               <option key={t} value={t} />

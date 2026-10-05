@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createEntity } from "./actions";
+import { ActionForm } from "../_components/ActionForm";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,7 @@ export default async function EntitiesPage() {
         how it links to a property, not from a separate table.
       </p>
 
-      <form
+      <ActionForm
         action={createEntity}
         className="grid grid-cols-2 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
       >
@@ -122,7 +123,7 @@ export default async function EntitiesPage() {
         >
           Add entity
         </button>
-      </form>
+      </ActionForm>
 
       {error && (
         <p className="text-red-600 mb-4">
