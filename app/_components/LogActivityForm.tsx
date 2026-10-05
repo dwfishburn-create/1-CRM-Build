@@ -1,11 +1,13 @@
 import { logActivityAction } from "./recordActions";
+import { ActionForm } from "./ActionForm";
 import { todayCentral, type Option } from "@/lib/contactOptions";
 
 // Log Activity form for the Contact, Property and Entity pages (9/24/2026,
 // fifth pass). Posts through lib/activity.ts — the same function the Agent
 // API uses — so a next step WITH a follow-up date becomes a task, and picking
 // a "waiting on" contact puts that task in the Dashboard's Waiting On column
-// instead of Your Move. No client JavaScript: a plain form and a server action.
+// instead of Your Move. Wrapped in ActionForm (10/5/2026) so a rejected save
+// shows its reason in place and keeps what was typed.
 
 const TYPES = [
   "Call",
@@ -46,7 +48,7 @@ export function LogActivityForm({
       <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-blue-700 select-none">
         + Log activity
       </summary>
-      <form action={logActivityAction} className="p-4 pt-2 grid grid-cols-4 gap-3">
+      <ActionForm action={logActivityAction} className="p-4 pt-2 grid grid-cols-4 gap-3">
         <input type="hidden" name="return_path" value={returnPath} />
         {contactId && <input type="hidden" name="contact_id" value={contactId} />}
         {entityId && <input type="hidden" name="entity_id" value={entityId} />}
@@ -125,7 +127,7 @@ export function LogActivityForm({
         <button type="submit" className="bg-blue-600 text-white rounded px-3 py-1.5 text-sm justify-self-end">
           Save activity
         </button>
-      </form>
+      </ActionForm>
     </details>
   );
 }

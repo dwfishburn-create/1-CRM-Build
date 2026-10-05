@@ -20,6 +20,7 @@ import {
   updateActivityAction,
   updateTaskAction,
 } from "./recordActions";
+import { ActionForm } from "./ActionForm";
 
 // Presentational building blocks shared by the Contact, Property and Entity
 // detail pages (9/24/2026). Server components only — no client state — so they
@@ -476,7 +477,7 @@ function ActivityEdit({
   return (
     <details className="mt-2">
       <summary className="text-xs text-blue-700 cursor-pointer select-none">Correct</summary>
-      <form action={updateActivityAction} className="mt-2 grid grid-cols-6 gap-2 items-end">
+      <ActionForm action={updateActivityAction} className="mt-2 grid grid-cols-6 gap-2 items-end">
         <input type="hidden" name="id" value={a.id} />
         <input type="hidden" name="return_path" value={returnPath} />
         <input type="hidden" name="original_date" value={dateValue} />
@@ -527,7 +528,7 @@ function ActivityEdit({
             Changes are kept in the edit history. Re-date a follow-up task in Tasks, not here.
           </span>
         </div>
-      </form>
+      </ActionForm>
     </details>
   );
 }
