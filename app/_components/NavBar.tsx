@@ -29,7 +29,7 @@ export function NavBar() {
         href="/"
         className="mr-5 whitespace-nowrap text-[17px] font-semibold text-neutral-900 dark:text-white"
       >
-        Dan Fishburn CRM
+        CRM - Dan Fishburn
       </Link>
       {LINKS.map((l) => {
         const active = path === l.href || path.startsWith(l.href + "/");

@@ -55,7 +55,7 @@ export default async function Home() {
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-1">Dan Fishburn CRM</h1>
+      <h1 className="text-2xl font-semibold mb-1">CRM - Dan Fishburn</h1>
       <p className="text-gray-500 mb-8">
         Omaha metro · statewide Nebraska · Council Bluffs / Iowa
       </p>
