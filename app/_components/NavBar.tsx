@@ -2,11 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { GlobalSearch } from "./GlobalSearch";
 
 // Top menu (10/5/2026). The old links were text-gray-600 with hover:text-black:
 // dim on Dan's dark background, and black-on-black — invisible — on hover.
 // Now: bright labels, a filled pill on hover, and the current section shown
 // in blue so it's clear where you are. Works in light and dark mode.
+//
+// 10/10/2026: the global search box sits at the right end (ml-auto inside
+// GlobalSearch). / or Ctrl+K focuses it from any page.
 
 const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -49,6 +53,7 @@ export function NavBar() {
           </Link>
         );
       })}
+      <GlobalSearch />
     </nav>
   );
 }
