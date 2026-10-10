@@ -10,6 +10,8 @@ import {
   redateTaskFromDashboard,
   retirePreview,
 } from "./actions";
+import { receivePaymentAction } from "../projects/[id]/pipeline-actions";
+import { ActionForm } from "../_components/ActionForm";
 
 export type DashTask = {
   id: string;
@@ -41,6 +43,16 @@ export type WaitingRow = {
   context: string;
   since: string;
   late: boolean;
+};
+export type ReceivableRow = {
+  id: string;
+  projectId: string;
+  who: string;
+  what: string;
+  context: string;
+  since: string;
+  late: boolean;
+  today: string;
 };
 export type PreviewData = {
   weekStart: string;
@@ -253,6 +265,52 @@ function WaitingLine({ w }: { w: WaitingRow }) {
   );
 }
 
+// Commission owed (Pipeline, 10/10/2026): earned, not received. Sits in
+// Waiting On and ages; "Received" records the date and drops it off.
+function ReceivableLine({ r }: { r: ReceivableRow }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-gray-100 dark:border-neutral-800">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        className="w-full text-left flex flex-wrap items-center gap-x-4 gap-y-1 min-h-12 py-2 md:pl-6"
+      >
+        <span className="flex-1 min-w-0 text-[15px] text-gray-900 dark:text-gray-100">
+          {r.who}
+          <span className="text-gray-500 dark:text-gray-400"> — {r.what}</span>
+        </span>
+        <span className="hidden md:block w-72 shrink-0 truncate text-sm text-gray-500 dark:text-gray-400">{r.context}</span>
+        <span className={`text-sm ${r.late ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}>{r.since}</span>
+      </button>
+      {open && (
+        <div className="pb-4 md:pl-6 flex flex-wrap items-center gap-2">
+          <ActionForm action={receivePaymentAction} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="id" value={r.id} />
+            <input type="hidden" name="project_id" value={r.projectId} />
+            <label className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              Received on
+              <input
+                name="received_date"
+                type="date"
+                defaultValue={r.today}
+                className="border border-gray-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 rounded px-2 min-h-11"
+              />
+            </label>
+            <button type="submit" className={btnSolid}>Received</button>
+          </ActionForm>
+          {r.projectId && (
+            <Link href={`/projects/${r.projectId}`} className="text-sm text-blue-600 dark:text-blue-400 hover:underline min-h-11 inline-flex items-center">
+              Open deal →
+            </Link>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardView(props: {
   dateLabel: string;
   summary: string;
@@ -260,6 +318,7 @@ export default function DashboardView(props: {
   deals: DashRow[];
   prospects: DashRow[];
   waiting: WaitingRow[];
+  receivables: ReceivableRow[];
   preview: PreviewData | null;
   ahead: AheadData;
 }) {
@@ -427,10 +486,13 @@ export default function DashboardView(props: {
 
       <section className="flex flex-col gap-1">
         <h2 className={`${label} mb-2`}>Waiting on</h2>
+        {props.receivables.map((r) => (
+          <ReceivableLine key={r.id} r={r} />
+        ))}
         {props.waiting.map((w) => (
           <WaitingLine key={w.id} w={w} />
         ))}
-        {props.waiting.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">Not waiting on anyone.</p>}
+        {props.waiting.length === 0 && props.receivables.length === 0 && <p className="text-sm text-gray-500 dark:text-gray-400">Not waiting on anyone.</p>}
       </section>
     </div>
   );

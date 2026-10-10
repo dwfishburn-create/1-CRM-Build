@@ -10,10 +10,10 @@ import {
   removeProjectContact,
   addReferenceLink,
   removeReferenceLink,
-  updateProjectValue,
 } from "./actions";
 import { setProjectClient } from "./deadline-actions";
 import DeadlinesSection from "./DeadlinesSection";
+import PipelineSection from "./PipelineSection";
 import { LogActivityForm } from "@/app/_components/LogActivityForm";
 import {
   ActivityFeed,
@@ -80,6 +80,7 @@ type ProjectContactRow = {
   id: string;
   role: string | null;
   split_pct: number | null;
+  party_side: string | null;
   notes: string | null;
   contact: NamedContact | NamedContact[] | null;
   entity: NamedEntity | NamedEntity[] | null;
@@ -171,7 +172,7 @@ export default async function ProjectDetailPage(
     supabase
       .from("project_contacts")
       .select(
-        "id, role, split_pct, notes, contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, display_code, name)"
+        "id, role, split_pct, party_side, notes, contact:contacts!contact_id(id, first_name, last_name), entity:entities!entity_id(id, display_code, name)"
       )
       .eq("project_id", id)
       .order("created_at", { ascending: false })
@@ -259,6 +260,8 @@ export default async function ProjectDetailPage(
         </p>
       )}
 
+      <PipelineSection projectId={project.id} variant="prompt" />
+
       <LogActivityForm
         defaultOpen={openLog}
         returnPath={here}
@@ -302,98 +305,7 @@ export default async function ProjectDetailPage(
 
       <DeadlinesSection projectId={project.id} />
 
-      <h2 className="text-lg font-semibold mb-1">Deal value &amp; priority</h2>
-      <p className="text-gray-500 mb-4 text-sm">
-        Deal Value and Expected Value are calculated automatically (price ×
-        commission rate, and that × probability of closing) — fill in Deal
-        Price, Commission Rate, and Probability below and they update on
-        save. Strategic Weight is a judgment call (relationship leverage,
-        repeat-business likelihood) — a note, not a score, and it&apos;s
-        never calculated for you.
-      </p>
-
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">
-            Deal value
-          </div>
-          <div className="text-2xl font-semibold">
-            {project.deal_value != null
-              ? `$${Math.round(project.deal_value).toLocaleString()}`
-              : "—"}
-          </div>
-        </div>
-        <div className="border border-gray-200 rounded-lg p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">
-            Expected value
-          </div>
-          <div className="text-2xl font-semibold">
-            {project.expected_value != null
-              ? `$${Math.round(project.expected_value).toLocaleString()}`
-              : "—"}
-          </div>
-        </div>
-      </div>
-
-      <form
-        action={updateProjectValue}
-        className="grid grid-cols-4 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
-      >
-        <input type="hidden" name="project_id" value={project.id} />
-        <label className="text-sm">
-          Deal price
-          <input
-            name="deal_price"
-            type="number"
-            step="0.01"
-            defaultValue={project.deal_price ?? ""}
-            placeholder="Sale price, or annualized lease value"
-            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
-          />
-        </label>
-        <label className="text-sm">
-          Commission rate (%)
-          <input
-            name="commission_rate"
-            type="number"
-            step="0.01"
-            defaultValue={project.commission_rate ?? ""}
-            placeholder="e.g. 6"
-            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
-          />
-        </label>
-        <label className="text-sm">
-          Probability (%)
-          <input
-            name="probability_pct"
-            type="number"
-            step="1"
-            min="0"
-            max="100"
-            defaultValue={project.probability_pct ?? ""}
-            placeholder="0–100"
-            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
-          />
-        </label>
-        <div className="flex items-end">
-          <button
-            type="submit"
-            className="bg-black text-white rounded px-4 py-2 h-fit"
-          >
-            Save
-          </button>
-        </div>
-        <label className="text-sm col-span-4">
-          Strategic weight (note, not a score)
-          <textarea
-            name="strategic_weight_note"
-            rows={2}
-            defaultValue={project.strategic_weight_note ?? ""}
-            placeholder="Relationship leverage, repeat-business likelihood, etc. — your judgment call"
-            className="border border-gray-300 rounded px-3 py-2 w-full mt-1"
-          />
-        </label>
-      </form>
+      <PipelineSection projectId={project.id} variant="section" />
 
       <h2 className="text-lg font-semibold mb-3">Candidate properties</h2>
 
@@ -533,12 +445,11 @@ export default async function ProjectDetailPage(
       </h2>
       <p className="text-gray-500 mb-4 text-sm">
         Decision-makers, co-brokers, referral sources, or other parties on
-        this deal. For a commission-split collaborator, set Split % — a
-        referral fee is typically 10–20% off the top of the gross
-        commission, a co-broker split (50/50 or 60/40 typical) divides
-        what&apos;s left after any referral. Link a specific person below, or
-        an outside brokerage directly (e.g. before you have a contact
-        there) in the second form.
+        this deal, and which side each is on — your client&apos;s side, the
+        counterparty (the other side of the deal), or a third party (title,
+        contractor, lender). Fee splits are recorded in the Pipeline section
+        above, not here. Link a specific person below, or a company directly
+        (e.g. before you have a contact there) in the second form.
       </p>
 
       <form
@@ -566,13 +477,17 @@ export default async function ProjectDetailPage(
           placeholder="Role (e.g. co-broker, referral) — optional"
           className="border border-gray-300 rounded px-3 py-2"
         />
-        <input
-          name="split_pct"
-          type="number"
-          step="0.01"
-          placeholder="Split % — optional"
+        <select
+          name="party_side"
+          defaultValue=""
+          aria-label="Side"
           className="border border-gray-300 rounded px-3 py-2"
-        />
+        >
+          <option value="">Side — optional</option>
+          <option value="client">Client side</option>
+          <option value="counterparty">Counterparty</option>
+          <option value="other">Third party</option>
+        </select>
         <button
           type="submit"
           className="bg-black text-white rounded px-4 py-2 justify-self-start h-fit"
@@ -606,13 +521,17 @@ export default async function ProjectDetailPage(
           placeholder="Role (e.g. co-broker, referral) — optional"
           className="border border-gray-300 rounded px-3 py-2"
         />
-        <input
-          name="split_pct"
-          type="number"
-          step="0.01"
-          placeholder="Split % — optional"
+        <select
+          name="party_side"
+          defaultValue=""
+          aria-label="Side"
           className="border border-gray-300 rounded px-3 py-2"
-        />
+        >
+          <option value="">Side — optional</option>
+          <option value="client">Client side</option>
+          <option value="counterparty">Counterparty</option>
+          <option value="other">Third party</option>
+        </select>
         <button
           type="submit"
           className="bg-black text-white rounded px-4 py-2 justify-self-start h-fit"
@@ -626,7 +545,7 @@ export default async function ProjectDetailPage(
           <tr className="text-left border-b border-gray-300">
             <th className="py-2 pr-3">Contact / Entity</th>
             <th className="py-2 pr-3">Role</th>
-            <th className="py-2 pr-3">Split %</th>
+            <th className="py-2 pr-3">Side</th>
             <th className="py-2 pr-3">Notes</th>
             <th className="py-2 pr-3"></th>
           </tr>
@@ -652,7 +571,13 @@ export default async function ProjectDetailPage(
                 </td>
                 <td className="py-2 pr-3 text-gray-500">{pc.role ?? "—"}</td>
                 <td className="py-2 pr-3 text-gray-500">
-                  {pc.split_pct != null ? `${pc.split_pct}%` : "—"}
+                  {pc.party_side === "client"
+                    ? "Client side"
+                    : pc.party_side === "counterparty"
+                      ? "Counterparty"
+                      : pc.party_side === "other"
+                        ? "Third party"
+                        : "—"}
                 </td>
                 <td className="py-2 pr-3 text-gray-500">{pc.notes ?? "—"}</td>
                 <td className="py-2 pr-3">

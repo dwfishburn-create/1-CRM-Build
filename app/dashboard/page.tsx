@@ -16,6 +16,7 @@ import DashboardView, {
   type AheadData,
   type DashRow,
   type PreviewData,
+  type ReceivableRow,
   type WaitingRow,
 } from "./DashboardView";
 
@@ -157,6 +158,39 @@ export default async function DashboardPage() {
     .eq("status", "open")
     .returns<TaskRow[]>();
   const tasks = tasksData ?? [];
+
+  // Commission earned and not yet received (Pipeline, 10/10/2026). Unpaid
+  // commission is Waiting On and ages like anything else (9/22/2026). Only
+  // payments already earned show — a Lease Year 6 payment is in the future.
+  const { data: owedData } = await supabase
+    .from("commission_payments")
+    .select("id, label, amount, earned_date, project:projects!project_id(id, project_code, client_name, dan_share_pct)")
+    .is("received_date", null)
+    .lte("earned_date", today)
+    .order("earned_date", { ascending: true })
+    .returns<{
+      id: string;
+      label: string;
+      amount: number | null;
+      earned_date: string;
+      project: { id: string; project_code: string; client_name: string; dan_share_pct: number | null } | { id: string; project_code: string; client_name: string; dan_share_pct: number | null }[] | null;
+    }[]>();
+  const receivables: ReceivableRow[] = (owedData ?? []).map((r) => {
+    const pr = one(r.project);
+    const yours = r.amount != null && pr?.dan_share_pct != null ? (r.amount * pr.dan_share_pct) / 100 : null;
+    const days = daysBetween(r.earned_date, today);
+    const money = (n: number) => "$" + Math.round(n).toLocaleString("en-US");
+    return {
+      id: r.id,
+      projectId: pr?.id ?? "",
+      who: pr?.project_code ?? "Commission",
+      what: `${r.label} commission${r.amount != null ? ` — ${money(r.amount)} gross` : ""}${yours != null ? `, ${money(yours)} yours` : ""}`,
+      context: pr?.client_name ?? "",
+      since: `Earned ${monthDay(r.earned_date)} · ${days === 1 ? "1 day" : `${days} days`}`,
+      late: days > 30,
+      today,
+    };
+  });
 
   const { data: eventsData } = await supabase
     .from("lease_events")
@@ -443,6 +477,7 @@ export default async function DashboardPage() {
     overdue ? `${overdue} overdue` : "nothing overdue",
     dueToday ? `${dueToday} due today` : overdue ? "nothing else due today" : "nothing due today",
     waiting.length ? `${waiting.length} waiting` : "not waiting on anyone",
+    ...(receivables.length ? [`${receivables.length} commission payment${receivables.length === 1 ? "" : "s"} owed`] : []),
   ].join(" · ");
 
   return (
@@ -453,6 +488,7 @@ export default async function DashboardPage() {
       deals={deals}
       prospects={prospects}
       waiting={waiting}
+      receivables={receivables}
       preview={preview}
       ahead={{ months, pastDue }}
     />

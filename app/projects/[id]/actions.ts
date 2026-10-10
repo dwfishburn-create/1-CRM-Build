@@ -77,13 +77,16 @@ export async function addProjectContact(formData: FormData) {
 
   const role = String(formData.get("role") || "").trim() || null;
   const notes = String(formData.get("notes") || "").trim() || null;
-  const split_pct_raw = String(formData.get("split_pct") || "").trim();
-  const split_pct = split_pct_raw ? Number(split_pct_raw) : null;
+  // 10/10/2026: splits moved to project_commission_participants (migration
+  // 025, Pipeline section). This form now records the party's side (Tier B
+  // #4) instead; leaving split_pct out of the upsert preserves any old value.
+  const side_raw = String(formData.get("party_side") || "").trim();
+  const party_side = ["client", "counterparty", "other"].includes(side_raw) ? side_raw : null;
 
   const { error } = await supabase
     .from("project_contacts")
     .upsert(
-      { project_id, contact_id, role, split_pct, notes },
+      { project_id, contact_id, role, party_side, notes },
       { onConflict: "project_id,contact_id" }
     );
 
@@ -108,13 +111,16 @@ export async function addProjectCollaboratorEntity(formData: FormData) {
 
   const role = String(formData.get("role") || "").trim() || null;
   const notes = String(formData.get("notes") || "").trim() || null;
-  const split_pct_raw = String(formData.get("split_pct") || "").trim();
-  const split_pct = split_pct_raw ? Number(split_pct_raw) : null;
+  // 10/10/2026: splits moved to project_commission_participants (migration
+  // 025, Pipeline section). This form now records the party's side (Tier B
+  // #4) instead; leaving split_pct out of the upsert preserves any old value.
+  const side_raw = String(formData.get("party_side") || "").trim();
+  const party_side = ["client", "counterparty", "other"].includes(side_raw) ? side_raw : null;
 
   const { error } = await supabase
     .from("project_contacts")
     .upsert(
-      { project_id, entity_id, role, split_pct, notes },
+      { project_id, entity_id, role, party_side, notes },
       { onConflict: "project_id,entity_id" }
     );
 

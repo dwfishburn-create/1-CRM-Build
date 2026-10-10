@@ -19,6 +19,7 @@ const LINKS = [
   { href: "/map", label: "Map" },
   { href: "/entities", label: "Entities" },
   { href: "/projects", label: "Projects" },
+  { href: "/pipeline", label: "Pipeline" },
   { href: "/requirements", label: "Requirements" },
   { href: "/tasks", label: "Tasks" },
   { href: "/sale-comps", label: "Sale Comps" },
