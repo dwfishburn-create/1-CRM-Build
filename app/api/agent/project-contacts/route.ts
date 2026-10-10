@@ -50,7 +50,8 @@ export async function GET(request: NextRequest) {
 // actual dollar amount — that needs the still-unbuilt deal-value/EV
 // scoring. See the 8/26/2026 "Solo vs. collaborator flag" idea and the
 // 8/30/2026 project_collaborators decision.
-// Body: { project_id, contact_id?, entity_id?, role?, split_pct?, notes? }
+// Body: { project_id, contact_id?, entity_id?, role?, party_side?, notes? }
+// (split_pct retired 10/10/2026 — use /api/agent/commission-participants)
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -76,23 +77,44 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // 10/10/2026 (migration 025): splits live only in
+  // project_commission_participants. A split sent here is refused rather than
+  // silently stored in the retired column, so it can't land in two places.
+  if (body.split_pct !== undefined && body.split_pct !== null && body.split_pct !== "") {
+    return NextResponse.json(
+      {
+        error:
+          "split_pct is no longer stored on project contacts (10/10/2026). Record the split with " +
+          "add_commission_participant (POST /api/agent/commission-participants) instead.",
+      },
+      { status: 400 }
+    );
+  }
+
   const role = String(body.role || "").trim() || null;
   const notes = String(body.notes || "").trim() || null;
-  const split_pct =
-    typeof body.split_pct === "number"
-      ? body.split_pct
-      : body.split_pct
-        ? Number(body.split_pct)
-        : null;
+
+  // party_side (Tier B #4): client / counterparty / other. Only written when
+  // sent, so re-linking a party never wipes a side already set.
+  const row: Record<string, unknown> = { project_id, contact_id, entity_id, role, notes };
+  if ("party_side" in body) {
+    const side = String(body.party_side ?? "").trim();
+    if (side && !["client", "counterparty", "other"].includes(side)) {
+      return NextResponse.json(
+        { error: "party_side must be client, counterparty or other (or empty to clear)." },
+        { status: 400 }
+      );
+    }
+    row.party_side = side || null;
+  }
 
   // Upsert on whichever pair the caller is actually linking — contact_id
-  // takes precedence when both are sent (matches the entity-optional
-  // philosophy elsewhere: contact is the more specific link).
+  // takes precedence when both are sent.
   const onConflict = contact_id ? "project_id,contact_id" : "project_id,entity_id";
 
   const { data, error } = await supabase
     .from("project_contacts")
-    .upsert({ project_id, contact_id, entity_id, role, split_pct, notes }, { onConflict })
+    .upsert(row, { onConflict })
     .select()
     .single();
 

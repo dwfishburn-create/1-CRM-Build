@@ -1026,7 +1026,11 @@ server.registerTool(
       "list_projects",
       {
         title: "List projects",
-        description: "List projects (deals/engagements), most recently created first.",
+        description:
+          "List projects (deals/engagements), most recently created first. Each row carries the " +
+          "pipeline fields: fee_basis, deal_price (basis), commission_rate, deal_value (gross), " +
+          "dan_share_pct, dan_share_value, probability_pct, expected_share_value, target_close_date " +
+          "(expected close), result, pipeline_setup_at (null = Dan hasn't set this deal up yet).",
         inputSchema: limitArg,
       },
       async ({ limit }) => toolResult(await agentApiGet("projects", { limit: limit?.toString() }))
@@ -1044,7 +1048,18 @@ server.registerTool(
           "computed automatically and can never be set directly. client_entity_id: the client's " +
           "entity record (find_entity first) — set it whenever the client is on file; it is what " +
           "makes the client's leases get lease-date warnings. status is active, on_hold, " +
-          "closed_won or closed_lost.",
+          "closed_won or closed_lost." + "Pipeline fields (migration 025, 10/10/2026): fee_basis (sale_price / base_rent_term / " +
+          "sublease_consideration / savings_buyout / flat_fee / other) — deal_price is the BASIS AMOUNT " +
+          "(sale price, total base rent over the primary term, sublease consideration, savings), or " +
+          "the fee itself when fee_basis is flat_fee (commission_rate is then ignored). dan_share_pct " +
+          "is Dan's % of the GROSS fee after deal-level splits and BEFORE CBRE's internal payout — " +
+          "never assume it; ask Dan. target_close_date is the expected close. result is active / " +
+          "inactive / won / lost / dropped, separate from status (a win rate is computed from it); " +
+          "result_note says why a deal was lost or dropped. mark_setup_done: true when Dan has given " +
+          "share, splits, probability and expected close for the deal — it retires the deal page's " +
+          "first-open setup card. Generated, never set: deal_value (gross), expected_value (gross × " +
+          "probability), dan_share_value, expected_share_value (share × probability). Splits go to " +
+          "add_commission_participant, payments to create_commission_payment.",
         inputSchema: {
           project_code: z.string().min(1),
           project_type: z.string().min(1),
@@ -1058,6 +1073,14 @@ server.registerTool(
           commission_rate: z.number().optional(),
           probability_pct: z.number().optional(),
           strategic_weight_note: z.string().optional(),
+          result: z.enum(["active", "inactive", "won", "lost", "dropped"]).optional(),
+          result_date: z.string().optional(),
+          result_note: z.string().optional(),
+          fee_basis: z
+            .enum(["sale_price", "base_rent_term", "sublease_consideration", "savings_buyout", "flat_fee", "other", ""])
+            .optional(),
+          dan_share_pct: z.number().optional(),
+          mark_setup_done: z.boolean().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("projects", args))
@@ -1078,7 +1101,18 @@ server.registerTool(
           "Expected-Value scoring fields — see CRM_Requirements_and_Decisions_Log.md. " +
           "client_entity_id links the client's entity record (drives client-lease warnings). " +
           "Setting status to closed_won on a TR or LRT project creates an 'enter the executed " +
-          "lease' task automatically.",
+          "lease' task automatically, and moves an Active result to won." + "Pipeline fields (migration 025, 10/10/2026): fee_basis (sale_price / base_rent_term / " +
+          "sublease_consideration / savings_buyout / flat_fee / other) — deal_price is the BASIS AMOUNT " +
+          "(sale price, total base rent over the primary term, sublease consideration, savings), or " +
+          "the fee itself when fee_basis is flat_fee (commission_rate is then ignored). dan_share_pct " +
+          "is Dan's % of the GROSS fee after deal-level splits and BEFORE CBRE's internal payout — " +
+          "never assume it; ask Dan. target_close_date is the expected close. result is active / " +
+          "inactive / won / lost / dropped, separate from status (a win rate is computed from it); " +
+          "result_note says why a deal was lost or dropped. mark_setup_done: true when Dan has given " +
+          "share, splits, probability and expected close for the deal — it retires the deal page's " +
+          "first-open setup card. Generated, never set: deal_value (gross), expected_value (gross × " +
+          "probability), dan_share_value, expected_share_value (share × probability). Splits go to " +
+          "add_commission_participant, payments to create_commission_payment.",
         inputSchema: {
           id: z.string().min(1),
           project_code: z.string().optional(),
@@ -1093,6 +1127,14 @@ server.registerTool(
           commission_rate: z.number().optional(),
           probability_pct: z.number().optional(),
           strategic_weight_note: z.string().optional(),
+          result: z.enum(["active", "inactive", "won", "lost", "dropped"]).optional(),
+          result_date: z.string().optional(),
+          result_note: z.string().optional(),
+          fee_basis: z
+            .enum(["sale_price", "base_rent_term", "sublease_consideration", "savings_buyout", "flat_fee", "other", ""])
+            .optional(),
+          dan_share_pct: z.number().optional(),
+          mark_setup_done: z.boolean().optional(),
         },
       },
       async (args) => toolResult(await agentApiPatch("projects", args))
@@ -1387,24 +1429,167 @@ server.registerTool(
       {
         title: "Link project contact",
         description:
-          "Link a contact and/or entity to a project (e.g. a co-broker, referral source, outside " +
-          "brokerage, or other party on the deal). At least one of contact_id/entity_id is " +
-          "required. For a commission-split collaborator, set split_pct — meaning depends on " +
-          "role: a referral fee is typically 10-20% off the top of the gross commission before " +
-          "any split, while a co-broker split (50/50 or 60/40 typical) divides what's left after " +
-          "any referral. Calling again with the same project_id+contact_id (or " +
-          "project_id+entity_id) updates that link's role/split_pct/notes instead of creating a " +
-          "duplicate.",
+          "Link a contact and/or entity to a project (a decision-maker, the other side's broker, " +
+          "title company, etc.). At least one of contact_id/entity_id is required. party_side: " +
+          "client (Dan's client's side), counterparty (the other side of the deal) or other (third " +
+          "party) — Tier B #4. Fee splits are NOT stored here any more (10/10/2026): sending " +
+          "split_pct is refused; use add_commission_participant. Calling again with the same " +
+          "project_id+contact_id (or project_id+entity_id) updates that link's role/party_side/notes " +
+          "instead of creating a duplicate; party_side is left as-is when omitted.",
         inputSchema: {
           project_id: z.string().min(1),
           contact_id: z.string().optional(),
           entity_id: z.string().optional(),
           role: z.string().optional(),
-          split_pct: z.number().optional(),
+          party_side: z.enum(["client", "counterparty", "other", ""]).optional(),
           notes: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("project-contacts", args))
+    );
+
+    // --- pipeline: commission participants and payments (migration 025, 10/10/2026) ---
+    server.registerTool(
+      "list_commission_participants",
+      {
+        title: "List commission participants",
+        description:
+          "List everyone besides Dan who shares a deal's fee (colleagues, co-brokers, referral " +
+          "sources, outside brokers), with role, split_pct (% of gross) and off_the_top. Pass " +
+          "project_id for one deal.",
+        inputSchema: { ...limitArg, project_id: z.string().optional() },
+      },
+      async ({ limit, project_id }) =>
+        toolResult(await agentApiGet("commission-participants", { limit: limit?.toString(), project_id }))
+    );
+    server.registerTool(
+      "add_commission_participant",
+      {
+        title: "Add commission participant",
+        description:
+          "Record someone besides Dan who shares a deal's fee. Give the party as contact_id or " +
+          "entity_id (find_contact / find_entity first), or party_name for someone not on file. " +
+          "role: colleague (CBRE), co_broker, referral, outside_broker, other. split_pct is their " +
+          "% of the GROSS fee; off_the_top: true for a referral taken before other splits. Splits " +
+          "vary deal to deal — never assume a default; take them from Dan or the deal documents. " +
+          "Dan's own share goes on the project (update_project dan_share_pct), not here.",
+        inputSchema: {
+          project_id: z.string().min(1),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          party_name: z.string().optional(),
+          role: z.enum(["colleague", "co_broker", "referral", "outside_broker", "other"]).optional(),
+          split_pct: z.number().optional(),
+          off_the_top: z.boolean().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("commission-participants", args))
+    );
+    server.registerTool(
+      "update_commission_participant",
+      {
+        title: "Update commission participant",
+        description:
+          "Change a commission participant by id — party, role, split_pct, off_the_top, notes. " +
+          "Only the fields provided change.",
+        inputSchema: {
+          id: z.string().min(1),
+          contact_id: z.string().optional(),
+          entity_id: z.string().optional(),
+          party_name: z.string().optional(),
+          role: z.enum(["colleague", "co_broker", "referral", "outside_broker", "other"]).optional(),
+          split_pct: z.number().optional(),
+          off_the_top: z.boolean().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("commission-participants", args))
+    );
+    server.registerTool(
+      "remove_commission_participant",
+      {
+        title: "Remove commission participant",
+        description: "Remove a commission participant by id (e.g. entered on the wrong deal).",
+        inputSchema: { id: z.string().min(1) },
+      },
+      async ({ id }) => toolResult(await agentApiDelete("commission-participants", { id }))
+    );
+    server.registerTool(
+      "list_commission_payments",
+      {
+        title: "List commission payments",
+        description:
+          "List commission payments — gross amount, earned_date or due_note, invoiced and " +
+          "received dates, and dan_share_amount (amount × the deal's dan_share_pct). project_id " +
+          "for one deal; unpaid: true for everything not yet received. A payment is OWED when " +
+          "earned_date has passed and received_date is empty — those age in the Dashboard's " +
+          "Waiting On. Owed money is a receivable, never probability-weighted.",
+        inputSchema: { ...limitArg, project_id: z.string().optional(), unpaid: z.boolean().optional() },
+      },
+      async ({ limit, project_id, unpaid }) =>
+        toolResult(
+          await agentApiGet("commission-payments", {
+            limit: limit?.toString(),
+            project_id,
+            unpaid: unpaid ? "true" : undefined,
+          })
+        )
+    );
+    server.registerTool(
+      "create_commission_payment",
+      {
+        title: "Create commission payment",
+        description:
+          "Add an expected commission payment to a deal. label e.g. \"Payment 1\"; amount is the " +
+          "GROSS payment. Give earned_date (YYYY-MM-DD) when it's earned — usually execution for " +
+          "a lease's first payment, closing for a sale — or due_note for one not yet earned (e.g. " +
+          "\"Lease Year 6\"); set earned_date later with update_commission_payment. Leases " +
+          "typically pay in two installments, sales once at closing, but take the split from the " +
+          "commission agreement or Dan.",
+        inputSchema: {
+          project_id: z.string().min(1),
+          label: z.string().min(1),
+          amount: z.number().optional(),
+          earned_date: z.string().optional(),
+          due_note: z.string().optional(),
+          invoiced_date: z.string().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("commission-payments", args))
+    );
+    server.registerTool(
+      "update_commission_payment",
+      {
+        title: "Update commission payment",
+        description:
+          "Change a commission payment by id. To record a payment arriving, set received_date " +
+          "(YYYY-MM-DD) and, if it differs from amount, received_amount — that drops it off the " +
+          "Dashboard. Also: label, amount, earned_date, due_note, invoiced_date, notes. Pass an " +
+          "empty string to clear a field.",
+        inputSchema: {
+          id: z.string().min(1),
+          label: z.string().optional(),
+          amount: z.number().optional(),
+          earned_date: z.string().optional(),
+          due_note: z.string().optional(),
+          invoiced_date: z.string().optional(),
+          received_date: z.string().optional(),
+          received_amount: z.number().optional(),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("commission-payments", args))
+    );
+    server.registerTool(
+      "delete_commission_payment",
+      {
+        title: "Delete commission payment",
+        description: "Delete a commission payment by id (entered in error). A received payment should be kept.",
+        inputSchema: { id: z.string().min(1) },
+      },
+      async ({ id }) => toolResult(await agentApiDelete("commission-payments", { id }))
     );
 
     // --- reference_links ---
@@ -2036,7 +2221,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.15.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.16.0" },
     verboseLogs: true,
   }
 );

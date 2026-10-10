@@ -2,6 +2,39 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+// Pipeline fields (migration 025, 10/10/2026). Checked here so a bad value
+// comes back as a readable 400 instead of a Postgres constraint error.
+const RESULTS = ["active", "inactive", "won", "lost", "dropped"];
+const FEE_BASES = ["sale_price", "base_rent_term", "sublease_consideration", "savings_buyout", "flat_fee", "other"];
+
+function pipelineFields(body: Record<string, unknown>, out: Record<string, unknown>): string | null {
+  if ("result" in body) {
+    const v = String(body.result ?? "").trim() || "active";
+    if (!RESULTS.includes(v)) return `result must be one of: ${RESULTS.join(", ")}.`;
+    out.result = v;
+  }
+  for (const f of ["result_date", "result_note"] as const) {
+    if (f in body) out[f] = String(body[f] ?? "").trim() || null;
+  }
+  if ("fee_basis" in body) {
+    const v = String(body.fee_basis ?? "").trim();
+    if (v && !FEE_BASES.includes(v)) return `fee_basis must be one of: ${FEE_BASES.join(", ")} (or empty to clear).`;
+    out.fee_basis = v || null;
+  }
+  if ("dan_share_pct" in body) {
+    const raw = body.dan_share_pct;
+    if (raw === null || raw === "") out.dan_share_pct = null;
+    else {
+      const n = Number(raw);
+      if (Number.isNaN(n) || n < 0 || n > 100) return "dan_share_pct must be a percent between 0 and 100.";
+      out.dan_share_pct = n;
+    }
+  }
+  if (body.mark_setup_done === true) out.pipeline_setup_at = new Date().toISOString();
+  if (body.mark_setup_done === false) out.pipeline_setup_at = null;
+  return null;
+}
+
 // GET /api/agent/projects?limit=50 — list projects, most recent first.
 export async function GET(request: NextRequest) {
   const limitParam = request.nextUrl.searchParams.get("limit");
@@ -89,6 +122,11 @@ export async function POST(request: NextRequest) {
   // client-lease derivation, so set it whenever the client is on file.
   const client_entity_id = String(body.client_entity_id || "").trim();
   if (client_entity_id) insertPayload.client_entity_id = client_entity_id;
+
+  const pipelineError = pipelineFields(body, insertPayload);
+  if (pipelineError) {
+    return NextResponse.json({ error: pipelineError }, { status: 400 });
+  }
 
   for (const field of ["deal_price", "commission_rate", "probability_pct"] as const) {
     const raw = body[field];
@@ -203,13 +241,18 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  const pipelineError = pipelineFields(body, updatePayload);
+  if (pipelineError) {
+    return NextResponse.json({ error: pipelineError }, { status: 400 });
+  }
+
   if (Object.keys(updatePayload).length === 0) {
     return NextResponse.json(
       {
         error:
           "Provide at least one field to update: " +
           [...stringFields, ...numericFields].join(", ") +
-          ".",
+          ", result, result_date, result_note, fee_basis, dan_share_pct, mark_setup_done.",
       },
       { status: 400 }
     );
