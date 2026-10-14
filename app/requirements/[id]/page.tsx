@@ -4,8 +4,14 @@ import { supabase } from "@/lib/supabase";
 import {
   addRequirementParty,
   removeRequirementParty,
+  updateRequirement,
   updateRequirementStatus,
 } from "./actions";
+import { ActionForm } from "@/app/_components/ActionForm";
+import { SignalFields } from "../SignalFields";
+import { choiceLabel, TARGET_MARKETS } from "@/lib/retailBrands";
+import { CONFIDENCE, RECONFIRM_CATEGORY } from "@/lib/requirementReconfirm";
+import { dueClass } from "@/lib/records";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +30,10 @@ type Requirement = {
   priority: string | null;
   details: string | null;
   source: string | null;
+  confidence: string | null;
+  source_date: string | null;
+  reconfirm_date: string | null;
+  target_markets: string[] | null;
 };
 
 type NamedContact = { id: string; first_name: string | null; last_name: string | null };
@@ -95,12 +105,18 @@ export default async function RequirementDetailPage(
 ) {
   const { id } = await props.params;
 
-  const [{ data: requirement }, { data: parties }, { data: contacts }, { data: entities }] =
+  const [
+    { data: requirement },
+    { data: parties },
+    { data: contacts },
+    { data: entities },
+    { data: reconfirmTasks },
+  ] =
     await Promise.all([
       supabase
         .from("requirements")
         .select(
-          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source"
+          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets"
         )
         .eq("id", id)
         .maybeSingle()
@@ -123,6 +139,13 @@ export default async function RequirementDetailPage(
         .select("id, name")
         .order("name", { ascending: true })
         .returns<{ id: string; name: string }[]>(),
+      supabase
+        .from("tasks")
+        .select("id, display_code, due_date")
+        .eq("requirement_id", id)
+        .eq("category", RECONFIRM_CATEGORY)
+        .eq("status", "open")
+        .returns<{ id: string; display_code: string | null; due_date: string | null }[]>(),
     ]);
 
   if (!requirement) notFound();
@@ -205,6 +228,95 @@ export default async function RequirementDetailPage(
           {requirement.details}
         </p>
       )}
+
+      <p className="text-sm text-gray-600 mb-4">
+        Confidence: {choiceLabel(CONFIDENCE, requirement.confidence)}
+        {" · "}Heard: {requirement.source_date ?? "—"}
+        {" · "}Markets:{" "}
+        {(requirement.target_markets ?? []).length
+          ? (requirement.target_markets ?? []).map((m) => choiceLabel(TARGET_MARKETS, m)).join(", ")
+          : "—"}
+        {" · "}Re-confirm by:{" "}
+        <span className={requirement.status === "active" ? dueClass(requirement.reconfirm_date) : ""}>
+          {requirement.reconfirm_date ?? "—"}
+        </span>
+        {(reconfirmTasks ?? []).length > 0 && (
+          <span className="text-gray-400"> (task {(reconfirmTasks ?? []).map((t) => t.display_code).join(", ")} open)</span>
+        )}
+      </p>
+
+      <details className="mb-8">
+        <summary className="text-sm text-blue-700 cursor-pointer select-none">Edit requirement</summary>
+        <ActionForm action={updateRequirement} className="mt-3 grid grid-cols-4 gap-3 items-end border border-gray-200 rounded-lg p-4">
+          <input type="hidden" name="id" value={requirement.id} />
+          <label className="text-xs text-gray-600">
+            Deal type
+            <input name="deal_type" defaultValue={requirement.deal_type ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Property type
+            <input name="property_type" defaultValue={requirement.property_type ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600 col-span-2">
+            Target location / submarket
+            <input name="target_location" defaultValue={requirement.target_location ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Size min (SF)
+            <input name="size_min" type="number" defaultValue={requirement.size_min ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Size max (SF)
+            <input name="size_max" type="number" defaultValue={requirement.size_max ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Budget min ($)
+            <input name="budget_min" type="number" defaultValue={requirement.budget_min ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Budget max ($)
+            <input name="budget_max" type="number" defaultValue={requirement.budget_max ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Timeline
+            <input name="timeline" defaultValue={requirement.timeline ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Status
+            <select name="status" defaultValue={requirement.status} className="border border-gray-300 rounded px-2 py-1 text-sm w-full">
+              {STATUS_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-gray-600">
+            Priority
+            <input name="priority" defaultValue={requirement.priority ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <label className="text-xs text-gray-600">
+            Source
+            <input name="source" defaultValue={requirement.source ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <SignalFields
+            input="border border-gray-300 rounded px-2 py-1 text-sm"
+            confidence={requirement.confidence}
+            sourceDate={requirement.source_date}
+            reconfirmDate={requirement.reconfirm_date}
+            markets={requirement.target_markets ?? []}
+          />
+          <label className="text-xs text-gray-600 col-span-4">
+            Details
+            <textarea name="details" rows={3} defaultValue={requirement.details ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
+          </label>
+          <div className="col-span-4">
+            <button type="submit" className="bg-blue-600 text-white rounded px-3 py-1 text-sm">
+              Save changes
+            </button>
+          </div>
+        </ActionForm>
+      </details>
 
       <h2 className="text-lg font-semibold mb-3">Linked contacts &amp; entities</h2>
 

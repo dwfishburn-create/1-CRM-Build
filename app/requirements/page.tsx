@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createRequirement } from "./actions";
+import { ActionForm } from "../_components/ActionForm";
+import { SignalFields } from "./SignalFields";
+import { choiceLabel, TARGET_MARKETS } from "@/lib/retailBrands";
+import { dueClass } from "@/lib/records";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +20,9 @@ type RequirementRow = {
   target_location: string | null;
   status: string;
   priority: string | null;
+  reconfirm_date: string | null;
+  confidence: string | null;
+  target_markets: string[] | null;
 };
 
 // Freeform per Dan's own design note (categories shouldn't be a fixed DB
@@ -65,7 +72,7 @@ export default async function RequirementsPage() {
   const { data: requirements, error } = await supabase
     .from("requirements")
     .select(
-      "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, status, priority"
+      "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, status, priority, reconfirm_date, confidence, target_markets"
     )
     .order("created_at", { ascending: false })
     .returns<RequirementRow[]>();
@@ -80,9 +87,9 @@ export default async function RequirementsPage() {
         it belongs to and see possible matches among your properties.
       </p>
 
-      <form
+      <ActionForm
         action={createRequirement}
-        className="grid grid-cols-4 gap-3 mb-10 border border-gray-200 rounded-lg p-4"
+        className="grid grid-cols-4 gap-3 mb-10 border border-gray-200 rounded-lg p-4 items-end"
       >
         <input
           name="deal_type"
@@ -179,6 +186,8 @@ export default async function RequirementsPage() {
           ))}
         </datalist>
 
+        <SignalFields input="border border-gray-300 rounded px-3 py-2" />
+
         <textarea
           name="details"
           placeholder="Details — what they actually said they need"
@@ -192,7 +201,7 @@ export default async function RequirementsPage() {
         >
           Add requirement
         </button>
-      </form>
+      </ActionForm>
 
       {error && (
         <p className="text-red-600 mb-4">
@@ -210,6 +219,8 @@ export default async function RequirementsPage() {
             <th className="py-2 pr-3">Size (SF)</th>
             <th className="py-2 pr-3">Budget</th>
             <th className="py-2 pr-3">Priority</th>
+            <th className="py-2 pr-3">Markets</th>
+            <th className="py-2 pr-3">Re-confirm</th>
             <th className="py-2 pr-3">Status</th>
           </tr>
         </thead>
@@ -234,12 +245,23 @@ export default async function RequirementsPage() {
                 {rangeLabel(r.budget_min, r.budget_max, "$")}
               </td>
               <td className="py-2 pr-3">{r.priority ?? "—"}</td>
+              <td className="py-2 pr-3 text-gray-500">
+                {(r.target_markets ?? []).length
+                  ? (r.target_markets ?? []).map((m) => choiceLabel(TARGET_MARKETS, m, true)).join(", ")
+                  : "—"}
+              </td>
+              <td className="py-2 pr-3">
+                <span className={r.status === "active" ? dueClass(r.reconfirm_date) : "text-gray-400"}>
+                  {r.reconfirm_date ?? "—"}
+                </span>
+                {r.confidence && <span className="text-xs text-gray-400"> · {r.confidence}</span>}
+              </td>
               <td className="py-2 pr-3">{statusLabel(r.status)}</td>
             </tr>
           ))}
           {requirements?.length === 0 && (
             <tr>
-              <td colSpan={8} className="py-4 text-gray-400">
+              <td colSpan={10} className="py-4 text-gray-400">
                 No requirements yet.
               </td>
             </tr>

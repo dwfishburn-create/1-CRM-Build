@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { syncReconfirmTaskSafe } from "@/lib/requirementReconfirm";
 
 // GET /api/agent/requirement-parties?limit=50 — list requirement<->party
 // links, most recent first. Optional ?requirement_id= filters to one
@@ -70,6 +71,14 @@ export async function POST(request: NextRequest) {
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // 10/13/2026: a requirement is usually created first and its brand linked
+  // second, so an open re-confirm task is re-titled here to name the brand.
+  // Never creates one (createIfMissing: false).
+  if (entity_id) {
+    const reconfirm = await syncReconfirmTaskSafe(requirement_id, { createIfMissing: false });
+    return NextResponse.json({ requirement_party: data, ...reconfirm }, { status: 201 });
   }
 
   return NextResponse.json({ requirement_party: data }, { status: 201 });

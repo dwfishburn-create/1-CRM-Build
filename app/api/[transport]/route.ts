@@ -125,6 +125,16 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // real two-people-same-name case. 26,156 contacts are waiting to import,
 // 13,642 of them in exact duplicate triples: a rule the caller has to
 // remember is a rule that breaks at that volume.
+//
+// Retail Tenant Directory added 10/13/2026 (migration 026, connector 1.17.0):
+// create_retail_brand / update_retail_brand / find_retail_brands /
+// mark_retail_brand_verified / list_retail_categories, plus
+// update_contact_entity. create_requirement / update_requirement gained
+// confidence, source_date, reconfirm_date and target_markets, and
+// link_contact_entity gained job history (is_current, started_on, ended_on).
+// Same thin-pass-through convention: the validation lives once, in
+// lib/retailBrands.ts and lib/requirementReconfirm.ts, shared with the web
+// screens.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -156,6 +166,86 @@ const provenanceArgs = {
   source_record_id: z.string().optional(),
   source_batch_id: z.string().optional(),
 };
+
+// Retail Tenant Directory closed lists (migration 026). These mirror the CHECK
+// constraints and lib/retailBrands.ts; the descriptions below spell them out
+// because a schema enum is not always shown to the model.
+const TARGET_MARKET_VALUES = ["omaha_metro", "lincoln", "greater_nebraska", "cb_western_iowa"] as const;
+const FACILITY_TYPE_VALUES = [
+  "free_standing",
+  "end_cap",
+  "neighborhood_strip",
+  "regional_strip",
+  "power_center",
+  "lifestyle_center",
+  "regional_mall",
+  "outlet_mall",
+  "downtown",
+  "kiosk",
+] as const;
+const EXPANSION_STATUS_VALUES = ["expanding", "selective", "not_expanding", "contracting", "unknown"] as const;
+const MARKETS_TEXT =
+  "omaha_metro (Omaha Metro), lincoln (Lincoln), greater_nebraska (Greater Nebraska), " +
+  "cb_western_iowa (Council Bluffs / Western Iowa)";
+const FACILITY_TEXT =
+  "free_standing, end_cap, neighborhood_strip, regional_strip, power_center, lifestyle_center, " +
+  "regional_mall, outlet_mall, downtown, kiosk";
+const EXPANSION_TEXT = "expanding, selective, not_expanding, contracting, unknown";
+
+// Requirement expansion-signal fields (migration 026), shared by
+// create_requirement and update_requirement.
+const requirementSignalArgs = {
+  confidence: z.enum(["high", "medium", "low"]).nullable().optional(),
+  source_date: z.string().optional(),
+  reconfirm_date: z.string().optional(),
+  target_markets: z.array(z.enum(TARGET_MARKET_VALUES)).optional(),
+};
+const REQUIREMENT_SIGNAL_TEXT =
+  "Expansion-signal fields (10/13/2026): confidence — exactly one of high, medium, low — how " +
+  "firm the signal is (a brand's published requirement is high; \"heard they might look at " +
+  "Lincoln\" is low); source_date — YYYY-MM-DD, when Dan heard it, not when it was entered; " +
+  "reconfirm_date — YYYY-MM-DD, when to check it is still real; target_markets — an array " +
+  "using ONLY these codes: " + MARKETS_TEXT + ". " +
+  "RE-CONFIRM TASK: while status is active and reconfirm_date is set, the CRM keeps exactly one " +
+  "open task (category 'reconfirm', title 'Re-confirm: <brand>') due on reconfirm_date, so it " +
+  "surfaces on the Dashboard — moving the date re-dates that task; clearing the date or moving " +
+  "the requirement out of active cancels it. Do not create that task yourself with create_task. " +
+  "The response includes reconfirm_task (what happened to it) or reconfirm_warning.";
+
+// Brand profile fields shared by create_retail_brand and update_retail_brand.
+// nullable() so an update can clear a field with null.
+const retailBrandArgs = {
+  category: z.string().nullable().optional(),
+  category_detail: z.string().nullable().optional(),
+  size_min_sf: z.number().nullable().optional(),
+  size_max_sf: z.number().nullable().optional(),
+  frontage_min_ft: z.number().nullable().optional(),
+  drive_thru: z.enum(["required", "preferred", "no"]).nullable().optional(),
+  facility_types: z.array(z.enum(FACILITY_TYPE_VALUES)).optional(),
+  site_criteria: z.string().nullable().optional(),
+  operating_model: z.enum(["corporate", "franchise", "both"]).nullable().optional(),
+  expansion_status: z.enum(EXPANSION_STATUS_VALUES).optional(),
+  target_markets: z.array(z.enum(TARGET_MARKET_VALUES)).optional(),
+  needs_verification: z.boolean().optional(),
+  last_verified_on: z.string().nullable().optional(),
+  verification_note: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+};
+const RETAIL_BRAND_FIELDS_TEXT =
+  "Fields: category — a retail_categories code from list_retail_categories (e.g. " +
+  "restaurant_qsr, coffee_bakery_dessert, grocery, fitness, medical_dental); the label is also " +
+  "accepted. category_detail — the finer label as given, free text (\"Restaurant (w/ " +
+  "Liquor)\"). size_min_sf / size_max_sf — the brand's typical space range in square feet; " +
+  "frontage_min_ft — minimum frontage in feet. drive_thru — exactly one of required, " +
+  "preferred, no. facility_types — an array using ONLY these codes: " + FACILITY_TEXT + ". " +
+  "site_criteria — free text by design (demographics, co-tenancy, corner/signal, parking). " +
+  "operating_model — exactly one of corporate, franchise, both. expansion_status — exactly " +
+  "one of " + EXPANSION_TEXT + " (defaults to unknown). target_markets — an array using ONLY " +
+  "these codes: " + MARKETS_TEXT + " — Dan's four territories, where the brand is looking. " +
+  "needs_verification — defaults to true on create; use mark_retail_brand_verified rather " +
+  "than setting it false by hand. notes — free text. Any value outside a closed list is " +
+  "refused with a 400 naming the allowed values. Metro locations are NOT a field: they are " +
+  "derived from the brand's tenancies (link_property_tenant), never typed.";
 
 // Args for the searchable, paginated list endpoints (contacts, entities).
 // limit maxes at 100 rather than 200 — the server caps it there anyway as of
@@ -675,15 +765,48 @@ server.registerTool(
           "the same person runs two separate businesses). Do not create a duplicate contact " +
           "record for the second affiliation — reuse the existing contact_id. Calling again with " +
           "the same contact_id+entity_id updates that link's role/notes instead of creating a " +
-          "duplicate.",
+          "duplicate. " +
+          "Also how a person is attached to a RETAIL BRAND in the Tenant Directory (10/13/2026): " +
+          "role is free text; the usual brand roles are Real Estate Director, Real Estate " +
+          "Manager, Franchise Development, Franchisee, Tenant Rep Broker, Other. Job history: " +
+          "is_current (default true on a new link), started_on and ended_on (YYYY-MM-DD). " +
+          "Sending ended_on without is_current marks the link former. These three are only " +
+          "written when sent, so re-linking to change a role keeps the history. When someone " +
+          "leaves a company, mark the link former (update_contact_entity) — never delete it.",
         inputSchema: {
+          ...provenanceArgs,
           contact_id: z.string().min(1),
           entity_id: z.string().min(1),
           role: z.string().optional(),
           notes: z.string().optional(),
+          is_current: z.boolean().optional(),
+          started_on: z.string().optional(),
+          ended_on: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPost("contact-entities", args))
+    );
+    server.registerTool(
+      "update_contact_entity",
+      {
+        title: "Update contact entity link",
+        description:
+          "Update one contact<->entity link by its id (from list_contact_entities) — role, notes, " +
+          "is_current, started_on, ended_on (YYYY-MM-DD). Only the fields provided are changed; " +
+          "pass a string field as an empty string to clear it. The usual use: a brand's real " +
+          "estate contact moved on — { id, is_current: false, ended_on } — so the link becomes " +
+          "job history instead of disappearing. Sending ended_on without is_current also marks " +
+          "the link former. At least one field besides id is required. Added 10/13/2026.",
+        inputSchema: {
+          id: z.string().min(1),
+          role: z.string().optional(),
+          notes: z.string().optional(),
+          is_current: z.boolean().optional(),
+          started_on: z.string().optional(),
+          ended_on: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("contact-entities", args))
     );
 
     // --- properties ---
@@ -1696,8 +1819,11 @@ server.registerTool(
           "\"Build-to-suit\"). size_min/size_max are square feet, budget_min/budget_max are " +
           "dollars — any of the four can be omitted. status defaults to \"active\" if not set. " +
           "This only creates the requirement itself — call link_requirement_party separately to " +
-          "attach the contact(s)/entity(ies) it belongs to.",
+          "attach the contact(s)/entity(ies) it belongs to (for a retail brand's expansion plan, " +
+          "link the brand's entity so the re-confirm task and the Tenant Directory pick it up). " +
+          REQUIREMENT_SIGNAL_TEXT,
         inputSchema: {
+          ...requirementSignalArgs,
           deal_type: z.string().optional(),
           property_type: z.string().optional(),
           size_min: z.number().optional(),
@@ -1761,8 +1887,11 @@ server.registerTool(
           "a string field as an empty string to clear it. At least one field besides id is " +
           "required. Added 9/13/2026 to close the gap where an existing requirement (e.g. " +
           "REQ-0001, REQ-0002) had no supported way to be edited after creation — see " +
-          "CRM_Requirements_and_Decisions_Log.md.",
+          "CRM_Requirements_and_Decisions_Log.md. Pass source_date / reconfirm_date as \"\" or " +
+          "confidence as null to clear; target_markets: [] clears the markets. " +
+          REQUIREMENT_SIGNAL_TEXT,
         inputSchema: {
+          ...requirementSignalArgs,
           id: z.string().min(1),
           deal_type: z.string().optional(),
           property_type: z.string().optional(),
@@ -1779,6 +1908,141 @@ server.registerTool(
         },
       },
       async (args) => toolResult(await agentApiPatch("requirements", args))
+    );
+
+    // --- retail tenant directory (migration 026, 10/13/2026) ---
+    server.registerTool(
+      "list_retail_categories",
+      {
+        title: "List retail categories",
+        description:
+          "List the Retail Tenant Directory's category pick list — code and label, in display " +
+          "order (restaurants first, then grocery/convenience, soft goods, services, " +
+          "entertainment, other). retail_brands.category must be one of these codes. Call this " +
+          "before create_retail_brand / update_retail_brand when unsure which code fits, and " +
+          "before filtering find_retail_brands by category. The list is data, not a schema " +
+          "constraint, so it can grow; do not assume it from memory.",
+        inputSchema: { include_inactive: z.boolean().optional() },
+      },
+      async ({ include_inactive }) =>
+        toolResult(
+          await agentApiGet("retail-categories", {
+            include_inactive: include_inactive ? "true" : undefined,
+          })
+        )
+    );
+    server.registerTool(
+      "find_retail_brands",
+      {
+        title: "Find retail brands (Tenant Directory)",
+        description:
+          "Search the Retail Tenant Directory — retail/restaurant/service brands with their " +
+          "space requirements, one row per brand with derived counts (current_contacts, " +
+          "metro_locations from the brand's tenancies, active_requirements, next_reconfirm). " +
+          "USE THIS TO BUILD PROSPECT LISTS for a vacancy or a listing: e.g. for a 2,400 SF end " +
+          "cap in Lincoln, call with fits_sf: 2400, market: \"lincoln\" and, if the space suits " +
+          "a use, a category such as restaurant_fast_casual. Filters (all optional, ANDed): q — " +
+          "brand name or trade name contains; category — a code from list_retail_categories; " +
+          "market — exactly one of " + MARKETS_TEXT + " (matches brands whose target_markets " +
+          "include it); expansion_status — one of " + EXPANSION_TEXT + "; fits_sf — keeps brands " +
+          "whose size_min_sf <= fits_sf <= size_max_sf, treating a missing bound as open, so a " +
+          "brand with no size on file is INCLUDED (unknown, not excluded) — check size_min_sf / " +
+          "size_max_sf before presenting it as a fit; needs_verification — true for only " +
+          "unverified profiles, false for only verified. Sorted by name. Returns brands, count " +
+          "(total matches), limit, offset, has_more — page with offset when has_more is true " +
+          "rather than concluding a brand is absent. Default 25 rows, max 100. Most seeded " +
+          "profiles are needs_verification: true (loaded from RealNex retail groups 10/13/2026); " +
+          "say so when presenting them. To find a brand's entity record use entity_id with " +
+          "find_entity / list_contact_entities / list_requirements.",
+        inputSchema: {
+          q: z.string().optional(),
+          category: z.string().optional(),
+          market: z.enum(TARGET_MARKET_VALUES).optional(),
+          expansion_status: z.enum(EXPANSION_STATUS_VALUES).optional(),
+          fits_sf: z.number().optional(),
+          needs_verification: z.boolean().optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+          offset: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ q, category, market, expansion_status, fits_sf, needs_verification, limit, offset }) =>
+        toolResult(
+          await agentApiGet("retail-brands", {
+            q,
+            category,
+            market,
+            expansion_status,
+            fits_sf: fits_sf?.toString(),
+            needs_verification: needs_verification === undefined ? undefined : String(needs_verification),
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "create_retail_brand",
+      {
+        title: "Create retail brand profile",
+        description:
+          "Add an EXISTING entity to the Retail Tenant Directory by giving it a brand profile. A " +
+          "brand is an ordinary entity plus exactly one profile: find_entity first, and " +
+          "create_entity (with the brand's legal name, trade_name for the d/b/a, website) only if " +
+          "it is not on file. entity_id is required. Refused with 409 if the entity already has " +
+          "a profile — the response carries existing_brand_id; use update_retail_brand instead. " +
+          "A new profile is needs_verification: true unless set otherwise. " +
+          RETAIL_BRAND_FIELDS_TEXT +
+          " Expansion plans with a size, market and timing are requirements, not profile " +
+          "fields: create_requirement, then link_requirement_party with this entity_id. People " +
+          "attach with link_contact_entity (role e.g. Real Estate Director, Franchisee, Tenant " +
+          "Rep Broker). Optional provenance: source_system, source_record_id, source_batch_id.",
+        inputSchema: {
+          ...provenanceArgs,
+          entity_id: z.string().min(1),
+          ...retailBrandArgs,
+        },
+      },
+      async (args) => toolResult(await agentApiPost("retail-brands", args))
+    );
+    server.registerTool(
+      "update_retail_brand",
+      {
+        title: "Update retail brand profile",
+        description:
+          "Update an EXISTING brand profile, identified by id (the profile id from " +
+          "find_retail_brands' brand_id or create_retail_brand) OR entity_id. Only the fields " +
+          "provided are changed; omitted fields are left as-is. Clear a field with null (or an " +
+          "empty string); an array field with []; expansion_status cleared becomes unknown. " +
+          "facility_types and target_markets REPLACE the whole list — send the full list you " +
+          "want, not just the addition. At least one field besides id/entity_id is required. " +
+          RETAIL_BRAND_FIELDS_TEXT +
+          " To record that Dan confirmed the profile, use mark_retail_brand_verified, which " +
+          "stamps today's date.",
+        inputSchema: {
+          id: z.string().optional(),
+          entity_id: z.string().optional(),
+          ...retailBrandArgs,
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("retail-brands", args))
+    );
+    server.registerTool(
+      "mark_retail_brand_verified",
+      {
+        title: "Mark retail brand verified",
+        description:
+          "Record that a brand profile has been confirmed — by Dan, or from the brand's own " +
+          "current published requirements — identified by id (profile id) or entity_id. Sets " +
+          "needs_verification to false and last_verified_on to today (Central time, set by the " +
+          "server). note, if given, replaces verification_note — say what was confirmed and how " +
+          "(\"Sizes and markets confirmed with RE director by phone\"). Only call this when the " +
+          "profile was actually checked; loading or editing data is not verification.",
+        inputSchema: {
+          id: z.string().optional(),
+          entity_id: z.string().optional(),
+          note: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("retail-brands/verify", args))
     );
 
     // --- spaces ---
@@ -2221,7 +2485,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.16.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.17.0" },
     verboseLogs: true,
   }
 );

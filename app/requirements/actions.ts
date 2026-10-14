@@ -3,11 +3,25 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
+import { signalFieldsFromForm, syncReconfirmTaskSafe } from "@/lib/requirementReconfirm";
+import type { FormResult } from "../_components/ActionForm";
 
 // A Requirement is a standing, informal capture of what someone told Dan
 // they need — distinct from a formal Project/Assignment. See
 // CRM_Requirements_and_Decisions_Log.md, 8/22/2026 entry.
-export async function createRequirement(formData: FormData) {
+//
+// 10/13/2026: returns a FormResult (ActionForm) instead of throwing, so a bad
+// date or market shows beside the form and keeps what was typed; and an
+// active requirement with a re-confirm date gets its re-confirm task.
+export async function createRequirement(_prev: FormResult, formData: FormData): Promise<FormResult> {
+  try {
+    return await createRequirementInner(formData);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), at: Date.now() };
+  }
+}
+
+async function createRequirementInner(formData: FormData): Promise<FormResult> {
   const deal_type = String(formData.get("deal_type") || "").trim() || null;
   const property_type =
     String(formData.get("property_type") || "").trim() || null;
@@ -28,10 +42,11 @@ export async function createRequirement(formData: FormData) {
   const priority = String(formData.get("priority") || "").trim() || "medium";
   const details = String(formData.get("details") || "").trim() || null;
   const source = String(formData.get("source") || "").trim() || null;
+  const signal = signalFieldsFromForm(formData);
 
   const display_code = await nextDisplayCode("requirements", "REQ");
 
-  const { error } = await supabase.from("requirements").insert({
+  const { data, error } = await supabase.from("requirements").insert({
     display_code,
     deal_type,
     property_type,
@@ -45,10 +60,16 @@ export async function createRequirement(formData: FormData) {
     priority,
     details,
     source,
-  });
+    ...signal,
+  }).select("id").single();
 
   if (error) throw new Error(error.message);
 
+  const reconfirm = await syncReconfirmTaskSafe(data.id);
+
   revalidatePath("/requirements");
+  revalidatePath("/dashboard");
+  revalidatePath("/tasks");
   revalidatePath("/");
+  return { ok: true, warning: reconfirm.reconfirm_warning, at: Date.now() };
 }

@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
+import { RetailBrandError } from "@/lib/retailBrands";
+import {
+  parseSignalFields,
+  SIGNAL_FIELDS,
+  syncReconfirmTaskSafe,
+} from "@/lib/requirementReconfirm";
 
 // GET /api/agent/requirements?limit=50&status=active — list requirements,
 // most recent first. Optional ?status= filter.
@@ -33,8 +39,16 @@ export async function GET(request: NextRequest) {
 // capture of what someone told Dan they need — not a formal Assignment).
 // Body: { deal_type?, property_type?, size_min?, size_max?, budget_min?,
 //         budget_max?, target_location?, timeline?, status?, priority?,
-//         details?, source? }
+//         details?, source?, confidence?, source_date?, reconfirm_date?,
+//         target_markets? }
 // Mirrors app/requirements/actions.ts:createRequirement field-for-field.
+//
+// 10/13/2026 (migration 026): the four expansion-signal fields — confidence
+// (high/medium/low), source_date and reconfirm_date (YYYY-MM-DD), and
+// target_markets (omaha_metro, lincoln, greater_nebraska, cb_western_iowa;
+// array or comma-separated). Validated in lib/requirementReconfirm.ts. An
+// active requirement with a reconfirm_date gets one open 'reconfirm' task due
+// that date; the response carries reconfirm_task (or reconfirm_warning).
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -62,6 +76,16 @@ export async function POST(request: NextRequest) {
   const details = body.details ? String(body.details).trim() : null;
   const source = body.source ? String(body.source).trim() : null;
 
+  let signal: Record<string, unknown>;
+  try {
+    signal = parseSignalFields(body);
+  } catch (e) {
+    if (e instanceof RetailBrandError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
+
   const display_code = await nextDisplayCode("requirements", "REQ");
 
   const { data, error } = await supabase
@@ -80,6 +104,7 @@ export async function POST(request: NextRequest) {
       priority,
       details,
       source,
+      ...signal,
     })
     .select()
     .single();
@@ -88,7 +113,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ requirement: data }, { status: 201 });
+  const reconfirm = await syncReconfirmTaskSafe(data.id);
+  return NextResponse.json({ requirement: data, ...reconfirm }, { status: 201 });
 }
 
 // PATCH /api/agent/requirements — partial update of one or more editable
@@ -105,6 +131,12 @@ export async function POST(request: NextRequest) {
 // existing requirement (REQ-0001, REQ-0002, etc.) once created. Same
 // convention as update_property/update_contact/update_entity/update_project
 // — see CRM_Requirements_and_Decisions_Log.md.
+//
+// 10/13/2026: also confidence, source_date, reconfirm_date, target_markets
+// (see POST). When the patch touches status or reconfirm_date, the open
+// re-confirm task is created / re-dated / cancelled to match; any other
+// edit only keeps an existing one's title in step, so editing details never
+// resurrects a re-confirm Dan already completed.
 export async function PATCH(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -155,16 +187,31 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  if (updatePayload.status === null) {
+    return NextResponse.json({ error: "status cannot be cleared." }, { status: 400 });
+  }
+
+  try {
+    Object.assign(updatePayload, parseSignalFields(body));
+  } catch (e) {
+    if (e instanceof RetailBrandError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    throw e;
+  }
+
   if (Object.keys(updatePayload).length === 0) {
     return NextResponse.json(
       {
         error:
           "Provide at least one field to update: " +
-          [...stringFields, ...numericFields].join(", ") + ".",
+          [...stringFields, ...numericFields, ...SIGNAL_FIELDS].join(", ") + ".",
       },
       { status: 400 }
     );
   }
+
+  updatePayload.updated_at = new Date().toISOString();
 
   const { data, error } = await supabase
     .from("requirements")
@@ -177,5 +224,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ requirement: data });
+  const reconfirm = await syncReconfirmTaskSafe(id, {
+    createIfMissing: "status" in updatePayload || "reconfirm_date" in updatePayload,
+  });
+  return NextResponse.json({ requirement: data, ...reconfirm });
 }

@@ -11,6 +11,9 @@ import { GlobalSearch } from "./GlobalSearch";
 //
 // 10/10/2026: the global search box sits at the right end (ml-auto inside
 // GlobalSearch). / or Ctrl+K focuses it from any page.
+//
+// 10/13/2026: Tenant Directory (the retail brand list, migration 026) sits
+// after Entities — every brand is an entity with a profile.
 
 const LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -18,6 +21,7 @@ const LINKS = [
   { href: "/properties", label: "Properties" },
   { href: "/map", label: "Map" },
   { href: "/entities", label: "Entities" },
+  { href: "/directory", label: "Tenant Directory" },
   { href: "/projects", label: "Projects" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/requirements", label: "Requirements" },

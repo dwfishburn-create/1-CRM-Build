@@ -28,6 +28,8 @@ import {
 } from "@/app/_components/RecordParts";
 import { LogActivityForm } from "@/app/_components/LogActivityForm";
 import { contactOptions } from "@/lib/contactOptions";
+import { listCategories } from "@/lib/retailBrands";
+import { BrandProfile, type BrandPerson, type BrandRow } from "./BrandProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -51,12 +53,13 @@ type Entity = {
 
 type ConBrief = { id: string; display_code: string | null; first_name: string | null; last_name: string | null; title: string | null; email: string | null; phone: string | null };
 type Alias = { id: string; alias: string; source: string | null };
-type Affil = { id: string; role: string | null; contact: ConBrief | ConBrief[] | null };
+type Affil = { id: string; role: string | null; is_current: boolean; started_on: string | null; ended_on: string | null; contact: ConBrief | ConBrief[] | null };
 type PropLite = { id: string; display_code: string | null; address: string; suite_number: string | null; city: string | null };
 type OwnerRow = { id: string; is_current: boolean; is_headquarters: boolean; ownership_start_date: string | null; property: PropLite | PropLite[] | null };
 type TenantRow = { id: string; is_current: boolean; lease_end_date: string | null; property: PropLite | PropLite[] | null };
 type ProjectLink = { id: string; role: string | null; split_pct: number | null; project: { id: string; project_code: string; project_type: string; client_name: string; status: string } | { id: string; project_code: string; project_type: string; client_name: string; status: string }[] | null };
-type ReqLink = { id: string; requirement: { id: string; display_code: string | null; deal_type: string | null; property_type: string | null; status: string | null; target_location: string | null } | { id: string; display_code: string | null; deal_type: string | null; property_type: string | null; status: string | null; target_location: string | null }[] | null };
+type ReqBrief = { id: string; display_code: string | null; deal_type: string | null; property_type: string | null; status: string | null; target_location: string | null; size_min: number | null; size_max: number | null; target_markets: string[] | null; confidence: string | null; reconfirm_date: string | null };
+type ReqLink = { id: string; requirement: ReqBrief | ReqBrief[] | null };
 type SignalRow = { id: string; signal_date: string; signal_type: string; indicated_price: number | null; indicated_rent: number | null; indicated_rent_basis: string | null; property: PropLite | PropLite[] | null };
 
 export default async function EntityDetailPage(props: PageProps<"/entities/[id]">) {
@@ -79,7 +82,7 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
       .returns<ConBrief[]>(),
     supabase
       .from("contact_entities")
-      .select("id, role, contact:contacts!contact_id(id, display_code, first_name, last_name, title, email, phone)")
+      .select("id, role, is_current, started_on, ended_on, contact:contacts!contact_id(id, display_code, first_name, last_name, title, email, phone)")
       .eq("entity_id", id)
       .returns<Affil[]>(),
     supabase
@@ -101,7 +104,7 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
       .returns<ProjectLink[]>(),
     supabase
       .from("requirement_parties")
-      .select("id, requirement:requirements!requirement_id(id, display_code, deal_type, property_type, status, target_location)")
+      .select("id, requirement:requirements!requirement_id(id, display_code, deal_type, property_type, status, target_location, size_min, size_max, target_markets, confidence, reconfirm_date)")
       .eq("entity_id", id)
       .returns<ReqLink[]>(),
     supabase
@@ -124,6 +127,14 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
       .order("activity_date", { ascending: false })
       .limit(100)
       .returns<ActivityLite[]>(),
+    // Retail Tenant Directory (10/13/2026): the brand profile, if any, and the
+    // view row for its derived metro-location count.
+    supabase.from("retail_brands").select("*").eq("entity_id", id).maybeSingle<BrandRow>(),
+    supabase
+      .from("retail_brand_directory")
+      .select("metro_locations")
+      .eq("entity_id", id)
+      .maybeSingle<{ metro_locations: number }>(),
   ]);
   const [
     { data: entity },
@@ -139,6 +150,8 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
     { data: signals },
     { data: tasks },
     { data: activity },
+    { data: brand },
+    { data: brandView },
   ] = results;
   // Surface any failed query rather than rendering an empty section —
   // an empty list and a broken query otherwise look identical.
@@ -155,11 +168,34 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
     const c = one(a.contact);
     if (!c) continue;
     const existing = people.get(c.id);
-    people.set(c.id, { contact: c, role: a.role ?? existing?.role ?? null });
+    people.set(c.id, {
+      contact: c,
+      role: [a.role ?? existing?.role ?? null, a.is_current === false ? "former" : null].filter(Boolean).join(" · ") || null,
+    });
   }
   const primary = one(entity.primary_contact);
 
-  const allContacts = await contactOptions();
+  const [allContacts, categories] = await Promise.all([contactOptions(), listCategories(true)]);
+
+  // Brand contacts: every contact_entities link (current and former, with
+  // dates), plus primary-employer contacts not also linked, shown as current.
+  const brandPeople: BrandPerson[] = [];
+  const linkedIds = new Set<string>();
+  for (const a of affiliations ?? []) {
+    const c = one(a.contact);
+    if (!c) continue;
+    linkedIds.add(c.id);
+    brandPeople.push({ link_id: a.id, contact: c, role: a.role, is_current: a.is_current, started_on: a.started_on, ended_on: a.ended_on });
+  }
+  for (const c of employees ?? []) {
+    if (!linkedIds.has(c.id)) {
+      brandPeople.push({ link_id: null, contact: c, role: null, is_current: true, started_on: null, ended_on: null });
+    }
+  }
+  const brandRequirements = (reqLinks ?? [])
+    .map((rl) => one(rl.requirement))
+    .filter((r): r is ReqBrief => !!r && r.status === "active")
+    .sort((a, b) => (a.reconfirm_date ?? "9999").localeCompare(b.reconfirm_date ?? "9999"));
   const here = `/entities/${id}`;
 
   // Roles derived from the relationships actually on file.
@@ -236,6 +272,15 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
           .map((p) => ({ id: p.id, label: `${p.project_code} — ${p.client_name}` }))}
         preferredContacts={allContacts.filter((c) => people.has(c.id))}
         allContacts={allContacts}
+      />
+
+      <BrandProfile
+        entityId={entity.id}
+        brand={brand ?? null}
+        categories={categories}
+        people={brandPeople}
+        requirements={brandRequirements}
+        metroLocations={Number(brandView?.metro_locations ?? 0)}
       />
 
       <Section title="Open tasks" count={tasks?.length ?? 0}>
