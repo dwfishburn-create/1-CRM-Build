@@ -10,6 +10,7 @@ globalIgnores([
 "out/**",
 "build/**",
 "next-env.d.ts",
+"rtd/**",
 ]),
 ]);
 

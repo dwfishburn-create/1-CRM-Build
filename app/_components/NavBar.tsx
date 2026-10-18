@@ -32,6 +32,9 @@ const LINKS = [
 
 export function NavBar() {
   const path = usePathname() ?? "";
+  // 10/16/2026: no menu on the sign-in page.
+  if (path === "/login") return null;
+
   return (
     <nav className="border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 px-6 py-2.5 flex flex-wrap items-center gap-1">
       <Link
@@ -59,6 +62,11 @@ export function NavBar() {
         );
       })}
       <GlobalSearch />
+      <form action="/auth/signout" method="post">
+        <button className="ml-2 whitespace-nowrap rounded-md px-3 py-1.5 text-[14px] text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white">
+          Sign out
+        </button>
+      </form>
     </nav>
   );
 }
