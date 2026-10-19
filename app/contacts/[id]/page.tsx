@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CopyEmail } from "@/app/_components/CopyEmail";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { entityHref, money, one, projectHref, propertyHref, propertyLabel, requirementHref } from "@/lib/records";
@@ -206,9 +207,7 @@ export default async function ContactDetailPage(props: PageProps<"/contacts/[id]
       <div className="grid grid-cols-3 gap-4 mb-6 border border-gray-200 rounded-lg p-4">
         <Field label="Email">
           {contact.email ? (
-            <a href={`mailto:${contact.email}`} className="text-blue-600 underline">
-              {contact.email}
-            </a>
+            <CopyEmail email={contact.email} />
           ) : (
             "—"
           )}

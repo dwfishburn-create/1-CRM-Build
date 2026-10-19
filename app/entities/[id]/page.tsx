@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CopyEmail } from "@/app/_components/CopyEmail";
 import { notFound } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import {
@@ -301,7 +302,7 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
                   {c.title && <> · {c.title}</>}
                   {role && <> · {role}</>}
                   {c.phone && <> · {c.phone}</>}
-                  {c.email && <> · {c.email}</>}
+                  {c.email && <> · <CopyEmail email={c.email} /></>}
                 </span>
               </li>
             ))}

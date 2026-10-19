@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CopyEmail } from "@/app/_components/CopyEmail";
 import { supabase } from "@/lib/supabase";
 import { createContact } from "./actions";
 import { ActionForm } from "../_components/ActionForm";
@@ -128,7 +129,7 @@ export default async function ContactsPage() {
                 )}
               </td>
               <td className="py-2 pr-3">{c.title ?? "—"}</td>
-              <td className="py-2 pr-3">{c.email ?? "—"}</td>
+              <td className="py-2 pr-3">{c.email ? <CopyEmail email={c.email} /> : "—"}</td>
               <td className="py-2 pr-3">
                 {c.phone ?? c.mobile_phone ?? "—"}
               </td>
