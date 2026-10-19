@@ -20,13 +20,15 @@ import {
   type TaskLite,
 } from "@/app/_components/RecordParts";
 import { LogActivityForm } from "@/app/_components/LogActivityForm";
+import { EditContactForm } from "./EditContactForm";
 import { contactOptions } from "@/lib/contactOptions";
 
 export const dynamic = "force-dynamic";
 
 // Contact detail page (9/24/2026). The record, then everything it connects to:
 // the company, other affiliations, deals, requirements, leases, open tasks,
-// owner signals and activity. Read-only for now — edits still go through the
+// owner signals and activity. Name, title, email and phones are editable from
+// the page as of 10/19/2026 (EditContactForm); other edits go through the
 // MCP update tools; the point of this pass is that every record can be opened
 // and linked to.
 
@@ -219,6 +221,8 @@ export default async function ContactDetailPage(props: PageProps<"/contacts/[id]
           {contact.mobile_phone ? <a href={`tel:${contact.mobile_phone}`}>{contact.mobile_phone}</a> : "—"}
         </Field>
       </div>
+
+      <EditContactForm contact={contact} />
 
       <NotesBox text={contact.notes} />
 
