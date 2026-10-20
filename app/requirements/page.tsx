@@ -23,6 +23,7 @@ type RequirementRow = {
   reconfirm_date: string | null;
   confidence: string | null;
   target_markets: string[] | null;
+  rtd_shared: boolean;
 };
 
 // Freeform per Dan's own design note (categories shouldn't be a fixed DB
@@ -72,7 +73,7 @@ export default async function RequirementsPage() {
   const { data: requirements, error } = await supabase
     .from("requirements")
     .select(
-      "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, status, priority, reconfirm_date, confidence, target_markets"
+      "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, status, priority, reconfirm_date, confidence, target_markets, rtd_shared"
     )
     .order("created_at", { ascending: false })
     .returns<RequirementRow[]>();
@@ -233,6 +234,9 @@ export default async function RequirementsPage() {
                   className="text-blue-600 underline"
                 >
                   {r.display_code ?? r.id.slice(0, 8)}
+                  {r.rtd_shared && (
+                    <span className="ml-1 rounded bg-lime-100 px-1 text-[10px] font-semibold text-lime-900" title="Shared to the Retail Tenant Directory">RTD</span>
+                  )}
                 </Link>
               </td>
               <td className="py-2 pr-3 text-gray-500">{r.deal_type ?? "—"}</td>

@@ -1,4 +1,5 @@
 import { listCategories, MARKETS, parseParams, searchBrands, SITES } from "@/lib/search";
+import { claimsFor } from "@/lib/rtd";
 import { Results } from "./Results";
 
 export default async function FitsThisSpace({ searchParams }: PageProps<"/">) {
@@ -7,6 +8,7 @@ export default async function FitsThisSpace({ searchParams }: PageProps<"/">) {
     listCategories(),
     params.size ? searchBrands(params) : Promise.resolve(null),
   ]);
+  const claims = await claimsFor(result?.rows.map((r) => r.entity_id) ?? []);
 
   return (
     <>
@@ -52,7 +54,7 @@ export default async function FitsThisSpace({ searchParams }: PageProps<"/">) {
       </form>
 
       {result?.error && <p className="error">Search failed: {result.error}</p>}
-      {result && !result.error && <Results rows={result.rows} params={params} basePath="/" showFit />}
+      {result && !result.error && <Results rows={result.rows} params={params} basePath="/" showFit claims={claims} />}
       {!result && (
         <div className="empty">
           Enter the space&apos;s size to see which brands fit. Brands with no target markets on file yet still show for any

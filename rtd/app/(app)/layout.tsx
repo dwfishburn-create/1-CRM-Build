@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getMe } from "@/lib/supabase";
+import { reviewCount } from "@/lib/rtd";
 import { NavLinks } from "./NavLinks";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     );
   }
 
+  const pending = me.is_admin ? await reviewCount() : 0;
+
   return (
     <div className="shell">
       <nav className="nav" aria-label="RTD">
@@ -27,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <span className="logo">RTD</span>
           <span className="brandname">Retail Tenant<br />Directory</span>
         </Link>
-        <NavLinks />
+        <NavLinks isAdmin={me.is_admin} reviewCount={pending} />
         <div className="navfoot">
           <span>Signed in as {me.display_name}</span>
           <form action="/auth/signout" method="post"><button>Sign out</button></form>

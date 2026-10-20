@@ -143,3 +143,21 @@ export async function removeRequirementParty(formData: FormData) {
 
   revalidatePath(`/requirements/${requirement_id}`);
 }
+
+// Share to RTD (10/20/2026). Dan: "I don't want my CRM requirements to
+// automatically get pushed into the RTD." A requirement shows in the Retail
+// Tenant Directory — to Jami and Trey too — only after this is pressed, and
+// disappears from it again on "Stop sharing". What the RTD shows: who it is
+// for, type, size, budget, location, markets, timeline, status, confidence and
+// dates, plus the RTD note. The Details field is never shown there.
+export async function setRtdShared(formData: FormData) {
+  const id = String(formData.get("id") || "").trim();
+  const share = String(formData.get("share") || "") === "1";
+  if (!id) throw new Error("id is required.");
+  const { error } = await supabase
+    .from("requirements")
+    .update({ rtd_shared: share, rtd_shared_at: share ? new Date().toISOString() : null, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidateRequirement(id);
+}

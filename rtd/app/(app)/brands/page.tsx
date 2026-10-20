@@ -1,9 +1,11 @@
 import { listCategories, MARKETS, parseParams, searchBrands } from "@/lib/search";
+import { claimsFor } from "@/lib/rtd";
 import { Results } from "../Results";
 
 export default async function AllBrands({ searchParams }: PageProps<"/brands">) {
   const params = { ...parseParams(await searchParams), size: null, site: "any" };
   const [categories, result] = await Promise.all([listCategories(), searchBrands(params)]);
+  const claims = await claimsFor(result.rows.map((r) => r.entity_id));
 
   return (
     <>
@@ -42,7 +44,7 @@ export default async function AllBrands({ searchParams }: PageProps<"/brands">) 
       {result.error ? (
         <p className="error">Search failed: {result.error}</p>
       ) : (
-        <Results rows={result.rows} params={params} basePath="/brands" showFit={false} />
+        <Results rows={result.rows} params={params} basePath="/brands" showFit={false} claims={claims} />
       )}
     </>
   );

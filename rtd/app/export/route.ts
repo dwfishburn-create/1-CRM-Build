@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { getMe } from "@/lib/supabase";
 import { EXPANSION, MARKETS, marketLabel, parseParams, searchBrands } from "@/lib/search";
+import { claimsFor } from "@/lib/rtd";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
   const params = { ...parseParams(sp), offset: 0 };
   const { rows, error } = await searchBrands(params, 5000);
   if (error) return new Response(`Export failed: ${error}`, { status: 500 });
+  const claims = await claimsFor(rows.map((r) => r.entity_id));
 
   const wb = new ExcelJS.Workbook();
   wb.creator = `RTD — ${me.display_name}`;
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
   const header = ws.addRow([
     "Brand", "Code", "Category", "Size min (SF)", "Size max (SF)", "Fit", "Expansion",
     "Target markets", "Verified", "Last verified", "Contact", "Title", "Email", "Phone",
-    "Contacts on file", "Active requirements",
+    "Contacts on file", "Active requirements", "Claimed by",
   ]);
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
   header.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F2A2E" } }; });
@@ -47,10 +49,11 @@ export async function GET(request: NextRequest) {
       r.last_verified_on ?? "",
       r.contact_name ?? "", r.contact_title ?? "", r.contact_email ?? "", r.contact_phone ?? "",
       r.contact_count, r.active_requirements,
+      claims.get(r.entity_id)?.holder ?? "",
     ]);
   }
 
-  const widths = [34, 11, 30, 13, 13, 13, 14, 26, 9, 13, 24, 28, 32, 16, 10, 12];
+  const widths = [34, 11, 30, 13, 13, 13, 14, 26, 9, 13, 24, 28, 32, 16, 10, 12, 18];
   widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
   [4, 5].forEach((i) => { ws.getColumn(i).numFmt = "#,##0"; });
   ws.autoFilter = { from: { row: 4, column: 1 }, to: { row: 4, column: widths.length } };

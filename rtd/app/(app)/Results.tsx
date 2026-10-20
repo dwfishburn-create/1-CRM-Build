@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { freshness, marketLabel, sizeRange, toQuery, type BrandRow, type SearchParams } from "@/lib/search";
+import type { Claim } from "@/lib/rtd";
 
 const PAGE = 100;
 
@@ -12,8 +13,8 @@ function Fit({ r }: { r: BrandRow }) {
   return null;
 }
 
-export function Results({ rows, params, basePath, showFit }: {
-  rows: BrandRow[]; params: SearchParams; basePath: string; showFit: boolean;
+export function Results({ rows, params, basePath, showFit, claims }: {
+  rows: BrandRow[]; params: SearchParams; basePath: string; showFit: boolean; claims: Map<string, Claim>;
 }) {
   const total = rows[0]?.total_count ?? 0;
   const fits = rows.filter((r) => r.fit === "fits").length;
@@ -64,6 +65,9 @@ export function Results({ rows, params, basePath, showFit }: {
                     <td>
                       <Link className="name" href={`/brands/${r.entity_id}`}>{r.name}</Link>
                       <div className="sub">{r.category_label ?? "No category"}</div>
+                      {claims.has(r.entity_id) && (
+                        <span className="pill pill-claim">Client — {claims.get(r.entity_id)!.holder_is_me ? "you" : claims.get(r.entity_id)!.holder}</span>
+                      )}
                     </td>
                     <td className="mono">{sizeRange(r.size_min_sf, r.size_max_sf)}</td>
                     {showFit && <td><Fit r={r} /></td>}

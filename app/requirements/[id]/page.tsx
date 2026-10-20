@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import {
   addRequirementParty,
   removeRequirementParty,
+  setRtdShared,
   updateRequirement,
   updateRequirementStatus,
 } from "./actions";
@@ -34,6 +35,11 @@ type Requirement = {
   source_date: string | null;
   reconfirm_date: string | null;
   target_markets: string[] | null;
+  rtd_shared: boolean;
+  rtd_shared_at: string | null;
+  rtd_note: string | null;
+  rtd_contact: string | null;
+  source_system: string | null;
 };
 
 type NamedContact = { id: string; first_name: string | null; last_name: string | null };
@@ -116,7 +122,7 @@ export default async function RequirementDetailPage(
       supabase
         .from("requirements")
         .select(
-          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets"
+          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets, rtd_shared, rtd_shared_at, rtd_note, rtd_contact, source_system"
         )
         .eq("id", id)
         .maybeSingle()
@@ -222,6 +228,33 @@ export default async function RequirementDetailPage(
         {requirement.priority && <> · Priority: {requirement.priority}</>}
         {requirement.source && <> · Source: {requirement.source}</>}
       </p>
+
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700">
+        <span className="font-semibold">Retail Tenant Directory:</span>
+        {requirement.rtd_shared ? (
+          <span className="text-green-700 dark:text-green-400">
+            Shared{requirement.rtd_shared_at ? ` ${new Date(requirement.rtd_shared_at).toLocaleDateString("en-US", { timeZone: "America/Chicago" })}` : ""}
+            {requirement.source_system === "rtd" ? " (added in the RTD)" : ""} — Jami and Trey can see and update it; Details stays private.
+          </span>
+        ) : (
+          <span className="text-gray-500">Not shared — only you see it.</span>
+        )}
+        <form action={setRtdShared}>
+          <input type="hidden" name="id" value={requirement.id} />
+          <input type="hidden" name="share" value={requirement.rtd_shared ? "0" : "1"} />
+          <button type="submit" className={requirement.rtd_shared
+            ? "text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800"
+            : "text-xs bg-blue-600 text-white rounded px-3 py-1"}>
+            {requirement.rtd_shared ? "Stop sharing" : "Share to RTD"}
+          </button>
+        </form>
+        {(requirement.rtd_note || requirement.rtd_contact) && (
+          <div className="w-full text-gray-600 dark:text-gray-300">
+            {requirement.rtd_note && <p className="whitespace-pre-line">RTD note: {requirement.rtd_note}</p>}
+            {requirement.rtd_contact && <p>Who to call: {requirement.rtd_contact}</p>}
+          </div>
+        )}
+      </div>
 
       {requirement.details && (
         <p className="text-sm text-gray-600 mb-8 border border-gray-200 rounded-lg p-3">

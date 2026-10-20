@@ -6,17 +6,23 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Fits this space" },
   { href: "/brands", label: "All brands" },
+  { href: "/requirements", label: "Requirements" },
+  { href: "/intel", label: "Quick note" },
+  { href: "/new", label: "What's new" },
+  { href: "/add-brand", label: "Add a brand" },
 ];
 
-export function NavLinks() {
+export function NavLinks({ isAdmin, reviewCount }: { isAdmin: boolean; reviewCount: number }) {
   const path = usePathname() ?? "/";
+  const links = isAdmin ? [...LINKS, { href: "/review", label: "Review" }] : LINKS;
   return (
     <div className="navlinks">
-      {LINKS.map((l) => {
+      {links.map((l) => {
         const active = l.href === "/" ? path === "/" : path === l.href || path.startsWith(l.href + "/");
         return (
           <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}>
             {l.label}
+            {l.href === "/review" && reviewCount > 0 && <span className="badge">{reviewCount}</span>}
           </Link>
         );
       })}
