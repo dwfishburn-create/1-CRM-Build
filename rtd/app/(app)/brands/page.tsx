@@ -8,7 +8,7 @@ import { Results } from "../Results";
 type NewBrand = { change_id: string; name: string; added_by: string; added_at: string; status: string; category_label: string | null };
 
 export default async function AllBrands({ searchParams }: PageProps<"/brands">) {
-  const params = { ...parseParams(await searchParams), size: null, site: "any" };
+  const params = { ...parseParams(await searchParams), size: null, site: "any", unsized: false, excludeCategories: [], excludeWords: [], showExcluded: false, saved: "" };
   const [categories, result] = await Promise.all([listCategories(), searchBrands(params)]);
   const claims = await claimsFor(result.rows.map((r) => r.entity_id));
   const supabase = await db();
@@ -31,7 +31,7 @@ export default async function AllBrands({ searchParams }: PageProps<"/brands">) 
         </label>
         <label className="field">
           Category
-          <select name="category" defaultValue={params.category}>
+          <select name="category" defaultValue={params.categories[0] ?? ""}>
             <option value="">Any category</option>
             {categories.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
           </select>

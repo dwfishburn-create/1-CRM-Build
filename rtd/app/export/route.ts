@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import ExcelJS from "exceljs";
 import { getMe } from "@/lib/supabase";
-import { EXPANSION, MARKETS, marketLabel, parseParams, searchBrands } from "@/lib/search";
+import { describeExclusions, describeSearch, EXPANSION, getSavedSearch, listCategories, marketLabel, parseParams, searchBrands } from "@/lib/search";
 import { claimsFor } from "@/lib/rtd";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
   if (!me) return new Response("Not signed in to the RTD.", { status: 401 });
 
   const sp = Object.fromEntries(request.nextUrl.searchParams.entries());
-  const params = { ...parseParams(sp), offset: 0 };
+  const params = { ...parseParams(sp), offset: 0, showExcluded: false };
   const { rows, error } = await searchBrands(params, 5000);
   if (error) return new Response(`Export failed: ${error}`, { status: 500 });
   const claims = await claimsFor(rows.map((r) => r.entity_id));
@@ -21,13 +21,10 @@ export async function GET(request: NextRequest) {
   wb.creator = `RTD — ${me.display_name}`;
   const ws = wb.addWorksheet("Prospects", { views: [{ state: "frozen", ySplit: 4 }] });
 
-  const criteria = [
-    params.size ? `${params.size.toLocaleString("en-US")} SF` : "Any size",
-    params.market ? MARKETS.find((m) => m.code === params.market)?.label ?? params.market : "Any market",
-    params.category || "Any category",
-    params.q ? `name contains "${params.q}"` : "",
-  ].filter(Boolean).join(" · ");
-  ws.addRow([`RTD prospect list — ${criteria}`]).font = { bold: true, size: 13 };
+  const [categories, saved] = await Promise.all([listCategories(), params.saved ? getSavedSearch(params.saved) : null]);
+  const criteria = [describeSearch(params, categories), describeExclusions(params, categories)].filter(Boolean).join(" · ");
+  const title = saved ? `${saved.listing ? `${saved.listing} — ` : ""}${saved.name}` : "RTD prospect list";
+  ws.addRow([`${title} — ${criteria}`]).font = { bold: true, size: 13 };
   ws.addRow([`Exported ${new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago" })} by ${me.display_name} · ${rows.length} brands`]);
   ws.addRow([]);
 
@@ -42,7 +39,7 @@ export async function GET(request: NextRequest) {
   for (const r of rows) {
     ws.addRow([
       r.name, r.display_code, r.category_label ?? "", r.size_min_sf ?? null, r.size_max_sf ?? null,
-      r.fit === "fits" ? "Fits" : r.fit === "close" ? `Close (${(r.fit_delta_pct ?? 0) > 0 ? "+" : "-"}${Math.abs(r.fit_delta_pct ?? 0)}%)` : "",
+      r.fit === "fits" ? "Fits" : r.fit === "unknown" ? "Size not on file" : r.fit === "close" ? `Close (${(r.fit_delta_pct ?? 0) > 0 ? "+" : "-"}${Math.abs(r.fit_delta_pct ?? 0)}%)` : "",
       EXPANSION[r.expansion_status] ?? r.expansion_status,
       r.target_markets.length ? r.target_markets.map(marketLabel).join(", ") : "Not set",
       r.needs_verification ? "No" : "Yes",
@@ -63,8 +60,13 @@ export async function GET(request: NextRequest) {
   return new Response(buf as ArrayBuffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="RTD_Prospects_${stamp}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${fileName(saved?.name, stamp)}"`,
       "Cache-Control": "no-store",
     },
   });
+}
+
+function fileName(name: string | undefined, stamp: string): string {
+  const slug = (name ?? "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+  return slug ? `RTD_${slug}_${stamp}.xlsx` : `RTD_Prospects_${stamp}.xlsx`;
 }

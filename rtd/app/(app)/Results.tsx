@@ -10,15 +10,24 @@ function Fit({ r }: { r: BrandRow }) {
     const d = r.fit_delta_pct ?? 0;
     return <span className="pill pill-close">Close ({d > 0 ? "+" : "−"}{Math.abs(d)}%)</span>;
   }
+  if (r.fit === "unknown") return <span className="pill pill-plain">Size not on file</span>;
   return null;
 }
 
-export function Results({ rows, params, basePath, showFit, claims }: {
+export function isNewer(at: string | null | undefined, since: string | null | undefined): boolean {
+  if (!at || !since) return false;
+  return new Date(at).getTime() > new Date(since).getTime();
+}
+
+export function Results({ rows, params, basePath, showFit, claims, newSince = null }: {
   rows: BrandRow[]; params: SearchParams; basePath: string; showFit: boolean; claims: Map<string, Claim>;
+  newSince?: string | null;   // a saved search: mark brands changed since this person last looked
 }) {
+  const excluded = rows[0]?.excluded_count ?? 0;
   const total = rows[0]?.total_count ?? 0;
   const fits = rows.filter((r) => r.fit === "fits").length;
   const close = rows.filter((r) => r.fit === "close").length;
+  const unsized = rows.filter((r) => r.fit === "unknown").length;
   const exportHref = `/export?${toQuery(params, { offset: 0 })}`;
   const from = params.offset + 1;
   const to = params.offset + rows.length;
@@ -30,7 +39,7 @@ export function Results({ rows, params, basePath, showFit, claims }: {
           {total === 0
             ? "No brands match"
             : showFit && params.offset === 0 && total <= PAGE
-              ? `${fits} ${fits === 1 ? "brand fits" : "brands fit"}${close ? ` · ${close} close` : ""}`
+              ? `${fits} ${fits === 1 ? "brand fits" : "brands fit"}${close ? ` · ${close} close` : ""}${unsized ? ` · ${unsized} size not on file` : ""}`
               : `${total.toLocaleString("en-US")} ${total === 1 ? "brand" : "brands"}`}
         </h2>
         {total > 0 && (
@@ -42,6 +51,15 @@ export function Results({ rows, params, basePath, showFit, claims }: {
           </a>
         )}
       </div>
+
+      {excluded > 0 && (
+        <p className="muted small">
+          {excluded.toLocaleString("en-US")} {excluded === 1 ? "brand" : "brands"} left out by the exclusives ·{" "}
+          <Link href={`${basePath}?${toQuery(params, { offset: 0, showExcluded: !params.showExcluded })}`}>
+            {params.showExcluded ? "Hide them" : "Show them, marked"}
+          </Link>
+        </p>
+      )}
 
       {total === 0 ? (
         <div className="empty">Nothing matches. Try a wider size, another category, or include close fits.</div>
@@ -61,9 +79,11 @@ export function Results({ rows, params, basePath, showFit, claims }: {
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.entity_id}>
+                  <tr key={r.entity_id} className={r.excluded_by ? "excluded" : undefined}>
                     <td>
                       <Link className="name" href={`/brands/${r.entity_id}`}>{r.name}</Link>
+                      {isNewer(r.changed_at, newSince) && <span className="pill pill-new">New</span>}
+                      {r.excluded_by && <span className="pill pill-x">Excluded — {r.excluded_by}</span>}
                       <div className="sub">{r.category_label ?? "No category"}</div>
                       {claims.has(r.entity_id) && (
                         <span className="pill pill-claim">Client — {claims.get(r.entity_id)!.holder_is_me ? "you" : claims.get(r.entity_id)!.holder}</span>
