@@ -3,21 +3,28 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { EXPANSION, FACILITY, MARKETS, marketLabel, sf, sizeRange } from "@/lib/search";
 import {
-  categoryMap, changeLines, changeTitle, day, DRIVE_THRU, NOTE_TAGS, OPERATING, REQ_STATUS, when, type BrandActivity,
+  categoryMap, changeLines, changeTitle, day, DRIVE_THRU, NOTE_TAGS, OPERATING, REQ_STATUS, shortDay, updatedBy, when,
+  type BrandActivity, type FieldUpdate, type FieldUpdates,
 } from "@/lib/rtd";
 import { ActionForm } from "@/app/_components/ActionForm";
+import { CrmMark, UpdatedBy } from "@/app/_components/Marks";
 import {
-  addContact, addNote, claimBrand, contactLeft, markVerified, proposeEdit, releaseBrand, updateContact,
+  addContact, addNote, claimBrand, contactLeft, markVerified, proposeEdit, releaseBrand, removeNote, undoChange, updateContact,
 } from "@/app/actions";
+import { NewBrandView } from "./NewBrandView";
 
 type Contact = {
-  contact_id: string; name: string; title: string | null; email: string | null;
+  contact_id: string | null; change_id?: string; name: string; title: string | null; email: string | null;
   phone: string | null; mobile: string | null; role: string | null; is_current: boolean; ended_on: string | null;
+  added_by?: string; added_at?: string; can_undo?: boolean;
+  left_reported_by?: string | null; left_change_id?: string | null;
+  updates?: Record<string, FieldUpdate>;
 };
 type Requirement = {
   id: string; display_code: string; deal_type: string | null; property_type: string | null;
   size_min: number | null; size_max: number | null; target_markets: string[] | null; timeline: string | null;
   status: string; confidence: string | null; source_date: string | null; reconfirm_date: string | null;
+  in_crm?: boolean; added_by?: string;
 };
 type Brand = {
   entity_id: string; display_code: string; name: string; trade_name: string | null; website: string | null;
@@ -27,7 +34,7 @@ type Brand = {
   operating_model: string | null; expansion_status: string; target_markets: string[];
   needs_verification: boolean; last_verified_on: string | null; verification_note: string | null;
   profile_notes: string | null; source_system: string | null; metro_locations: number;
-  contacts: Contact[]; requirements: Requirement[];
+  contacts: Contact[]; requirements: Requirement[]; field_updates: FieldUpdates;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -42,7 +49,12 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
     categoryMap(),
   ]);
   if (error) return <p className="error">Couldn&apos;t load this brand: {error.message}</p>;
-  if (!data) notFound();
+  if (!data) {
+    // A brand added in the RTD that isn't in the CRM yet.
+    const nb = await supabase.rpc("rtd_new_brand", { p_change_id: id });
+    if (nb.data) return <NewBrandView b={nb.data} />;
+    notFound();
+  }
   const b = data as Brand;
   const a = (act.data ?? { me: { is_admin: false, display_name: "" }, claim: null, notes: [], pending: [], history: [], verified_by: null }) as BrandActivity;
   const isAdmin = a.me.is_admin;
@@ -50,7 +62,7 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
   const former = b.contacts.filter((c) => !c.is_current);
   const website = b.website ? (b.website.startsWith("http") ? b.website : `https://${b.website}`) : null;
   const claim = a.claim;
-  const goesWhere = isAdmin ? "Saves straight to the CRM." : "Goes to Dan for review; everyone sees it here as proposed until then.";
+  const fu = b.field_updates ?? {};
 
   return (
     <>
@@ -94,9 +106,12 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
       </header>
 
       <div className="facts">
-        <div className="fact"><span className="k">Size</span><span className="v mono">{sizeRange(b.size_min_sf, b.size_max_sf)}{b.size_min_sf != null || b.size_max_sf != null ? " SF" : ""}</span></div>
-        <div className="fact"><span className="k">Expansion</span><span className="v">{EXPANSION[b.expansion_status] ?? b.expansion_status}</span></div>
-        <div className="fact"><span className="k">Target markets</span><span className="v">{b.target_markets.length ? b.target_markets.map(marketLabel).join(", ") : "Not set"}</span></div>
+        <div className="fact"><span className="k">Size</span><span className="v mono">{sizeRange(b.size_min_sf, b.size_max_sf)}{b.size_min_sf != null || b.size_max_sf != null ? " SF" : ""}</span>
+          <UpdatedBy u={updatedBy(fu, ["size_min_sf", "size_max_sf"])} isAdmin={isAdmin} /></div>
+        <div className="fact"><span className="k">Expansion</span><span className="v">{EXPANSION[b.expansion_status] ?? b.expansion_status}</span>
+          <UpdatedBy u={updatedBy(fu, ["expansion_status"])} isAdmin={isAdmin} /></div>
+        <div className="fact"><span className="k">Target markets</span><span className="v">{b.target_markets.length ? b.target_markets.map(marketLabel).join(", ") : "Not set"}</span>
+          <UpdatedBy u={updatedBy(fu, ["target_markets"])} isAdmin={isAdmin} /></div>
         <div className={b.needs_verification ? "fact warn" : "fact"}>
           <span className="k">Freshness</span>
           <span className="v">{b.needs_verification ? (b.last_verified_on ? "Unverified" : "Never verified") : "Verified"}</span>
@@ -104,6 +119,7 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
             {b.last_verified_on
               ? `Last checked ${day(b.last_verified_on)}${a.verified_by ? ` by ${a.verified_by}` : ""}`
               : b.source_system === "realnex" ? "From RealNex, 10/13/2026" : ""}
+            {isAdmin && fu.last_verified_on && !fu.last_verified_on.in_crm && <> · <span className="crmmark">Not in CRM</span></>}
           </span>
           <details className="inline">
             <summary>Still current?</summary>
@@ -116,18 +132,6 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
           </details>
         </div>
       </div>
-
-      {a.pending.length > 0 && (
-        <section className="stack">
-          <h2>Proposed — waiting for Dan</h2>
-          {a.pending.map((c) => (
-            <div className="card proposed" key={c.id}>
-              <div><b>{changeTitle(c)}</b> <span className="muted-inline">· {c.author}, {when(c.created_at)}</span></div>
-              <ul className="changes">{changeLines(c, cats).map((l) => <li key={l}>{l}</li>)}</ul>
-            </div>
-          ))}
-        </section>
-      )}
 
       <div className="cols">
         <section className="col-main">
@@ -153,9 +157,14 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
                 <div className="notehead">
                   <b>{n.author}</b>
                   <span className="muted-inline">{when(n.created_at)}</span>
-                  {n.status === "accepted" && <span className="pill pill-fit">In CRM</span>}
-                  {n.status === "pending" && <span className="pill pill-plain">Waiting for Dan</span>}
-                  {n.status === "rejected" && <span className="pill pill-plain">RTD only</span>}
+                  <CrmMark isAdmin={isAdmin} status={n.status} />
+                  {n.can_remove && (
+                    <ActionForm action={removeNote} submitLabel="Remove" submitClass="btn btn-quiet btn-xs" resetOnOk={false}
+                      confirm="Remove this note from the RTD for everyone?">
+                      <input type="hidden" name="note_id" value={n.id} />
+                      <input type="hidden" name="entity_id" value={b.entity_id} />
+                    </ActionForm>
+                  )}
                 </div>
                 {n.tags.length > 0 && <div className="tags">{n.tags.map((t) => <span key={t} className="pill pill-tag">{t}</span>)}</div>}
                 <p>{n.body}</p>
@@ -173,10 +182,11 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
               {b.facility_types.map((f) => <span key={f} className="pill pill-plain">{FACILITY[f] ?? f}</span>)}
             </div>
             <p>{b.site_criteria || <span className="muted">No site criteria on file.</span>}</p>
+            <UpdatedBy u={updatedBy(fu, ["category", "category_detail", "drive_thru", "frontage_min_ft", "operating_model", "facility_types", "site_criteria", "website"])} isAdmin={isAdmin} />
             <details className="editbox">
               <summary>Edit the profile</summary>
-              <p className="muted small">{goesWhere}</p>
-              <ActionForm action={proposeEdit} submitLabel={isAdmin ? "Save changes" : "Send to Dan"} className="aform grid2" resetOnOk={false}>
+              <p className="muted small">Everyone sees your changes right away.</p>
+              <ActionForm action={proposeEdit} submitLabel="Save" className="aform grid2" resetOnOk={false}>
                 <input type="hidden" name="entity_id" value={b.entity_id} />
                 <label className="field">Size min (SF)<input name="size_min_sf" inputMode="numeric" defaultValue={b.size_min_sf ?? ""} /></label>
                 <label className="field">Size max (SF)<input name="size_max_sf" inputMode="numeric" defaultValue={b.size_max_sf ?? ""} /></label>
@@ -230,7 +240,7 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
             <Link className="btn btn-outline btn-sm" href={`/requirements/new?brand=${b.entity_id}`}>Add a requirement</Link>
           </div>
           {b.requirements.length === 0 ? (
-            <div className="empty">No requirements shared for this brand.</div>
+            <div className="empty">No requirements for this brand yet.</div>
           ) : (
             b.requirements.map((r) => (
               <div className="card" key={r.id}>
@@ -241,7 +251,9 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
                   {r.target_markets?.length ? ` · ${r.target_markets.map(marketLabel).join(", ")}` : ""}
                   {r.timeline ? ` · ${r.timeline}` : ""}
                 </div>
-                <div className="muted">Heard {day(r.source_date) || "—"}{r.reconfirm_date ? ` · re-confirm ${day(r.reconfirm_date)}` : ""}</div>
+                <div className="muted">Heard {day(r.source_date) || "—"}{r.reconfirm_date ? ` · re-confirm ${day(r.reconfirm_date)}` : ""}
+                  {r.added_by ? ` · added by ${r.added_by}` : ""}</div>
+                {isAdmin && r.in_crm === false && <span className="pill pill-crm">Not in CRM</span>}
               </div>
             ))
           )}
@@ -255,16 +267,21 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
 
           {a.history.length > 0 && (
             <>
-              <h2>History</h2>
+              <h2>Recent updates</h2>
               <div className="card history">
                 {a.history.map((h, i) => (
                   <div className="hrow" key={i}>
-                    <div>
+                    <div className="hhead">
                       <b>{changeTitle(h)}</b>
-                      {h.status === "rejected" && <span className="pill pill-plain">Not accepted</span>}
-                      <span className="muted-inline"> · {h.author}, {when(h.at)}
-                        {h.reviewed_by && h.reviewed_by !== h.author ? ` · accepted by ${h.reviewed_by}` : ""}
-                        {h.result_ref ? ` · ${h.result_ref}` : ""}</span>
+                      <span className="muted-inline">{h.author}, {when(h.at)}</span>
+                      <CrmMark isAdmin={isAdmin} status={h.status} />
+                      {h.can_undo && h.id && (
+                        <ActionForm action={undoChange} submitLabel="Undo" submitClass="btn btn-quiet btn-xs" resetOnOk={false}
+                          confirm="Undo this? It comes off the RTD for everyone.">
+                          <input type="hidden" name="change_id" value={h.id} />
+                          <input type="hidden" name="entity_id" value={b.entity_id} />
+                        </ActionForm>
+                      )}
                     </div>
                     {changeLines(h, cats).length > 0 && (
                       <ul className="changes">{changeLines(h, cats).map((l) => <li key={l}>{l}</li>)}</ul>
@@ -281,15 +298,29 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
           <div className="card">
             {current.length === 0 && former.length === 0 && <p className="muted">No contacts on file.</p>}
             {current.map((c) => {
+              const cu = c.updates ? updatedBy(c.updates, ["title", "email", "phone", "mobile_phone", "first_name", "last_name"]) : null;
               return (
-                <div className="person" key={c.contact_id + "c"}>
+                <div className="person" key={(c.contact_id ?? c.change_id) + "c"}>
                   <b>{c.name || "(no name)"}</b>
                   <span className="muted">{[c.title, c.role && c.role !== c.title ? c.role : null].filter(Boolean).join(" · ") || "Current"}</span>
                   {c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}
                   {(c.phone || c.mobile) && <a href={`tel:${(c.mobile || c.phone || "").replace(/[^0-9+]/g, "")}`}>{c.mobile || c.phone}</a>}
+                  {c.added_by && (
+                    <span className="s updated">Added by {c.added_by}{c.added_at ? `, ${shortDay(c.added_at)}` : ""}
+                      {isAdmin && <> · <span className="crmmark">Not in CRM</span></>}</span>
+                  )}
+                  <UpdatedBy u={cu} isAdmin={isAdmin} />
+                  {c.change_id && c.can_undo && (
+                    <ActionForm action={undoChange} submitLabel="Undo" submitClass="btn btn-quiet btn-xs" resetOnOk={false}
+                      confirm={`Take ${c.name} off this brand for everyone?`}>
+                      <input type="hidden" name="change_id" value={c.change_id} />
+                      <input type="hidden" name="entity_id" value={b.entity_id} />
+                    </ActionForm>
+                  )}
+                  {c.contact_id && (
                   <details className="inline">
                     <summary>Update or mark gone</summary>
-                    <ActionForm action={updateContact} submitLabel={isAdmin ? "Save" : "Send to Dan"} submitClass="btn btn-outline btn-sm" resetOnOk={false}>
+                    <ActionForm action={updateContact} submitLabel="Save" submitClass="btn btn-outline btn-sm" resetOnOk={false}>
                       <input type="hidden" name="entity_id" value={b.entity_id} />
                       <input type="hidden" name="contact_id" value={c.contact_id} />
                       <label className="field">Title<input name="title" defaultValue={c.title ?? ""} /></label>
@@ -304,20 +335,24 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
                       <label className="field">Where did they go? (optional)<input name="note" maxLength={500} /></label>
                     </ActionForm>
                   </details>
+                  )}
                 </div>
               );
             })}
             {former.map((c) => (
-              <div className="person former" key={c.contact_id + "f"}>
+              <div className="person former" key={(c.contact_id ?? c.change_id) + "f"}>
                 <b>{c.name}</b>
                 <span>{c.title ? `${c.title} · ` : ""}former{c.ended_on ? `, left ${day(c.ended_on)}` : ""}</span>
+                {c.left_reported_by && (
+                  <span className="s updated">Reported by {c.left_reported_by}
+                    {isAdmin && <> · <span className="crmmark">Not in CRM</span></>}</span>
+                )}
               </div>
             ))}
           </div>
           <details className="card editbox">
             <summary>Add a contact</summary>
-            <p className="muted small">{goesWhere}</p>
-            <ActionForm action={addContact} submitLabel={isAdmin ? "Add contact" : "Send to Dan"}>
+            <ActionForm action={addContact} submitLabel="Save">
               <input type="hidden" name="entity_id" value={b.entity_id} />
               <label className="field">First name<input name="first_name" autoComplete="off" /></label>
               <label className="field">Last name<input name="last_name" autoComplete="off" /></label>

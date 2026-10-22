@@ -1,15 +1,26 @@
 import { db } from "./supabase";
 import { EXPANSION, FACILITY, marketLabel, sf } from "./search";
 
-// Shapes and labels for RTD build session 2 (migration 029): claims, intel
-// notes, proposals, the review queue and What's new.
+// Shapes and labels for the RTD's shared work (migrations 029 + 030): claims,
+// intel notes, the team's edits (live in the RTD as soon as they're saved),
+// Dan's Sync to CRM and What's new.
+//
+// Wording rule (Dan, 10/22/2026): the RTD is the team's shared record, so
+// nothing a colleague sees says "waiting for Dan" or "sent for review".
+// Whether something is in Dan's CRM yet is shown to Dan only.
 
 export type Claim = { entity_id: string; holder: string; holder_is_me: boolean; since: string; auto: boolean };
 
 export type Note = {
   id: string; author: string; mine: boolean; body: string; tags: string[]; created_at: string;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "kept" | "removed";
+  in_crm?: boolean;
+  can_remove?: boolean;
 };
+
+/** Who last changed a field in the RTD (and, for Dan, whether it's in the CRM). */
+export type FieldUpdate = { author: string; at: string; in_crm: boolean; change_id: string };
+export type FieldUpdates = Record<string, FieldUpdate>;
 
 export type Change = {
   id?: string;
@@ -24,6 +35,8 @@ export type Change = {
   payload: Record<string, unknown> | null;
   result_ref?: string | null;
   contact_name?: string | null;
+  in_crm?: boolean;
+  can_undo?: boolean;
 };
 
 export type BrandActivity = {
@@ -77,6 +90,7 @@ export const KIND_LABEL: Record<string, string> = {
   expanding: "Now expanding",
   requirement: "Requirement",
   requirement_edit: "Requirement update",
+  undone: "Undone",
   new_requirement: "New requirement",
   requirement_update: "Requirement update",
 };
@@ -132,7 +146,7 @@ export type Requirement = {
   budget_min: number | null; budget_max: number | null; target_location: string | null; target_markets: string[];
   timeline: string | null; status: string; confidence: string | null; source_date: string | null;
   reconfirm_date: string | null; rtd_note: string | null; rtd_contact: string | null; added_by: string | null;
-  shared_at: string | null; updated_at: string; pending_updates: number; total_count: number;
+  shared_at: string | null; updated_at: string; rtd_only: boolean; not_in_crm: boolean; total_count: number;
 };
 
 export function money(n: number | null | undefined): string {
@@ -266,4 +280,17 @@ export async function reviewQueue(): Promise<{ items: QueueItem[]; error?: strin
   const { data, error } = await supabase.rpc("rtd_review_queue");
   if (error) return { items: [], error: dbMessage(error.message) };
   return { items: (data ?? []) as QueueItem[] };
+}
+
+/** "Updated by Jami, Oct 22" for the first of these fields the team changed. */
+export function updatedBy(updates: FieldUpdates | undefined, fields: string[]): FieldUpdate | null {
+  if (!updates) return null;
+  const hits = fields.map((f) => updates[f]).filter(Boolean) as FieldUpdate[];
+  if (hits.length === 0) return null;
+  return hits.sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+}
+
+export function shortDay(ts: string | null | undefined): string {
+  if (!ts) return "";
+  return new Date(ts).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" });
 }

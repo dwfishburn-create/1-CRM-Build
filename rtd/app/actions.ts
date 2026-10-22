@@ -26,9 +26,11 @@ function fail(error: string): FormResult {
 function done(message: string): FormResult {
   return { ok: true, message, at: Date.now() };
 }
-function saved(status: unknown, direct: string, queued: string): FormResult {
+// Everyone gets the same plain confirmation: what's saved is live for the
+// whole team. (Whether it's in Dan's CRM yet is Dan's business — 10/22/2026.)
+function saved(status: unknown, message = "Saved — Jami, Trey and Dan see it now."): FormResult {
   if (status === "no_change") return { ok: false, error: "Nothing changed.", at: Date.now() };
-  return done(status === "pending" ? queued : direct);
+  return done(message);
 }
 function refresh(id?: string) {
   if (id) revalidatePath(`/brands/${id}`);
@@ -71,7 +73,7 @@ export async function addNote(_p: FormResult, fd: FormData): Promise<FormResult>
   const r = await call("rtd_add_note", { p_entity_id: id, p_body: body, p_tags: tags });
   if (r.error) return fail(r.error);
   refresh(id);
-  return saved(r.data?.status, "Saved — it's on the brand and in the CRM.", "Saved — Jami, Trey and Dan can see it now.");
+  return saved(r.data?.status);
 }
 
 // ---- Profile edits --------------------------------------------------------
@@ -92,7 +94,7 @@ export async function proposeEdit(_p: FormResult, fd: FormData): Promise<FormRes
   const r = await call("rtd_propose_edit", { p_entity_id: id, p_fields: brandFields(fd) });
   if (r.error) return fail(r.error);
   refresh(id);
-  return saved(r.data?.status, "Saved to the CRM.", "Sent to Dan for review — it shows on this page as proposed until then.");
+  return saved(r.data?.status);
 }
 
 export async function markVerified(_p: FormResult, fd: FormData): Promise<FormResult> {
@@ -100,7 +102,7 @@ export async function markVerified(_p: FormResult, fd: FormData): Promise<FormRe
   const r = await call("rtd_mark_verified", { p_entity_id: id, p_note: str(fd, "note") || null });
   if (r.error) return fail(r.error);
   refresh(id);
-  return saved(r.data?.status, "Marked current.", "Thanks — sent to Dan to mark it current.");
+  return saved(r.data?.status, "Marked current — thanks.");
 }
 
 // ---- Contacts -------------------------------------------------------------
@@ -128,7 +130,7 @@ export async function addContact(_p: FormResult, fd: FormData): Promise<FormResu
     };
   }
   refresh(id);
-  return saved(r.data?.status, `Added${r.data?.result_ref ? ` as ${r.data.result_ref}` : ""}.`, "Sent to Dan for review — shown here as proposed until then.");
+  return saved(r.data?.status, "Added — Jami, Trey and Dan see it now.");
 }
 
 export async function updateContact(_p: FormResult, fd: FormData): Promise<FormResult> {
@@ -140,7 +142,7 @@ export async function updateContact(_p: FormResult, fd: FormData): Promise<FormR
   const r = await call("rtd_update_contact", { p_entity_id: id, p_contact_id: contactId, p_fields: fields });
   if (r.error) return fail(r.error);
   refresh(id);
-  return saved(r.data?.status, "Saved to the CRM.", "Sent to Dan for review.");
+  return saved(r.data?.status);
 }
 
 export async function contactLeft(_p: FormResult, fd: FormData): Promise<FormResult> {
@@ -150,7 +152,7 @@ export async function contactLeft(_p: FormResult, fd: FormData): Promise<FormRes
   const r = await call("rtd_contact_left", { p_entity_id: id, p_contact_id: contactId, p_note: str(fd, "note") || null });
   if (r.error) return fail(r.error);
   refresh(id);
-  return saved(r.data?.status, "Marked as no longer there.", "Sent to Dan for review.");
+  return saved(r.data?.status, "Marked as no longer there.");
 }
 
 // ---- New brand ------------------------------------------------------------
@@ -188,8 +190,11 @@ export async function addBrand(_p: FormResult, fd: FormData): Promise<FormResult
     };
   }
   refresh();
+  revalidatePath("/brands");
   if (r.data?.status === "applied" && r.data.entity_id) redirect(`/brands/${r.data.entity_id}`);
-  return done(`Sent to Dan for review. ${name} joins the directory once he accepts it — you'll see it under What's new.`);
+  const newId = (r.data as { id?: string } | undefined)?.id;
+  if (newId) redirect(`/brands/${newId}`);
+  return done(`Saved — ${name} is in the directory.`);
 }
 
 // ---- Requirements (10/20/2026) ------------------------------------------
@@ -223,9 +228,10 @@ export async function addRequirement(_p: FormResult, fd: FormData): Promise<Form
   }
   refresh(UUID.test(brandId) ? brandId : undefined);
   revalidatePath("/requirements");
-  const reqId = (r.data as { requirement_id?: string } | undefined)?.requirement_id;
-  if (r.data?.status === "applied" && reqId) redirect(`/requirements/${reqId}`);
-  return done("Sent to Dan for review — it shows on Requirements as waiting until he accepts it.");
+  const d = r.data as { requirement_id?: string; id?: string } | undefined;
+  if (r.data?.status === "applied" && d?.requirement_id) redirect(`/requirements/${d.requirement_id}`);
+  if (d?.id) redirect(`/requirements/${d.id}`);
+  return done("Saved — Jami, Trey and Dan see it now.");
 }
 
 export async function updateRequirement(_p: FormResult, fd: FormData): Promise<FormResult> {
@@ -236,5 +242,31 @@ export async function updateRequirement(_p: FormResult, fd: FormData): Promise<F
   revalidatePath(`/requirements/${id}`);
   revalidatePath("/requirements");
   refresh();
-  return saved(r.data?.status, "Saved to the CRM.", "Sent to Dan for review — shown on this page as proposed until then.");
+  return saved(r.data?.status);
+}
+
+// ---- Undo / remove (the author or Dan) --------------------------------------
+// Takes back an entry that isn't in Dan's CRM yet: it leaves the RTD for everyone.
+export async function undoChange(_p: FormResult, fd: FormData): Promise<FormResult> {
+  const changeId = str(fd, "change_id");
+  if (!UUID.test(changeId)) return fail("Missing item.");
+  const back = str(fd, "back");
+  const r = await call("rtd_undo", { p_change_id: changeId });
+  if (r.error) return fail(r.error);
+  const id = str(fd, "entity_id");
+  refresh(UUID.test(id) ? id : undefined);
+  revalidatePath("/requirements");
+  revalidatePath("/brands");
+  if (back.startsWith("/") && !back.startsWith("//")) redirect(back);
+  return done("Undone.");
+}
+
+export async function removeNote(_p: FormResult, fd: FormData): Promise<FormResult> {
+  const noteId = str(fd, "note_id");
+  if (!UUID.test(noteId)) return fail("Missing note.");
+  const r = await call("rtd_remove_note", { p_note_id: noteId });
+  if (r.error) return fail(r.error);
+  const id = str(fd, "entity_id");
+  refresh(UUID.test(id) ? id : undefined);
+  return done("Removed.");
 }

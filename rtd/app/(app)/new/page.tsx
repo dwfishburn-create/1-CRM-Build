@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { db } from "@/lib/supabase";
+import { db, getMe } from "@/lib/supabase";
+import { CrmMark } from "@/app/_components/Marks";
 import { dbMessage, KIND_LABEL, when } from "@/lib/rtd";
 
 // What's new across the directory: intel notes, brands now expanding, new
@@ -22,7 +23,8 @@ export default async function WhatsNew({ searchParams }: PageProps<"/new">) {
   const days = RANGES.includes(Number(sp.days)) ? Number(sp.days) : 30;
   const group = GROUPS.find((g) => g.code === sp.show) ?? GROUPS[0];
   const supabase = await db();
-  const { data, error } = await supabase.rpc("rtd_whats_new", { p_days: days });
+  const [{ data, error }, me] = await Promise.all([supabase.rpc("rtd_whats_new", { p_days: days }), getMe()]);
+  const isAdmin = !!me?.is_admin;
   const rows = ((data ?? []) as Row[]).filter((r) => group.kinds.length === 0 || group.kinds.includes(r.kind));
 
   const href = (d: number, s: string) => `/new?${new URLSearchParams({ ...(d !== 30 ? { days: String(d) } : {}), ...(s ? { show: s } : {}) })}`;
@@ -56,10 +58,10 @@ export default async function WhatsNew({ searchParams }: PageProps<"/new">) {
               <span className="feedkind">{KIND_LABEL[r.kind] ?? r.kind}</span>
               <div className="feedbody">
                 <div>
-                  {r.requirement_id && r.status !== "pending"
+                  {r.requirement_id
                     ? <Link className="name" href={`/requirements/${r.requirement_id}`}>{r.brand}</Link>
                     : r.entity_id ? <Link className="name" href={`/brands/${r.entity_id}`}>{r.brand}</Link> : <b>{r.brand}</b>}
-                  {r.status === "pending" && <span className="pill pill-plain">Waiting for Dan</span>}
+                  <CrmMark isAdmin={isAdmin} status={r.status} />
                 </div>
                 <p>{r.detail}</p>
                 <span className="muted-inline">{r.who ?? "CRM"} · {when(r.at)}</span>

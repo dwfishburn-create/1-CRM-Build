@@ -4,8 +4,8 @@ import { categoryMap, changeLines, changeTitle, FIELD_LABEL, reviewQueue, showVa
 
 export const dynamic = "force-dynamic";
 
-// Dan's review queue as a sheet. Fill in Decision (Accept / Reject / Leave),
-// optionally Yes under "Accept anyway", and upload it on the Review page.
+// Sync to CRM as a sheet. Pick a Decision (Add to CRM / Keep in RTD only /
+// Later), optionally Yes under "Add anyway", and upload it on Sync to CRM.
 export async function GET() {
   const me = await getMe();
   if (!me?.is_admin) return new Response("Only Dan reviews proposals.", { status: 403 });
@@ -15,10 +15,10 @@ export async function GET() {
   const wb = new ExcelJS.Workbook();
   wb.creator = "RTD";
   const ws = wb.addWorksheet("Review", { views: [{ state: "frozen", ySplit: 3 }] });
-  ws.addRow([`RTD review queue — ${items.length} items, downloaded ${new Date().toLocaleString("en-US", { timeZone: "America/Chicago" })}`]).font = { bold: true, size: 13 };
-  ws.addRow(["Decision: Accept, Reject or Leave (blank = Leave). \"Accept anyway\" = Yes overrides a CRM conflict or a likely duplicate. Don't edit the Item ID or Type columns."]);
+  ws.addRow([`RTD Sync to CRM — ${items.length} items, downloaded ${new Date().toLocaleString("en-US", { timeZone: "America/Chicago" })}`]).font = { bold: true, size: 13 };
+  ws.addRow(["Decision: Add to CRM, Keep in RTD only or Later (blank = Later). \"Add anyway\" = Yes overrides a CRM conflict or a likely duplicate. Don't edit the Item ID or Type columns."]);
 
-  const headers = ["Decision", "Accept anyway", "Brand", "What", "From", "Date", "Details", "Flags", "Type", "Item ID"];
+  const headers = ["Decision", "Add anyway", "Brand", "What", "From", "Date", "Details", "Flags", "Type", "Item ID"];
   const head = ws.addRow(headers);
   head.font = { bold: true, color: { argb: "FFFFFFFF" } };
   head.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F2A2E" } }; });
@@ -37,7 +37,7 @@ export async function GET() {
       details, flags, it.type, it.id,
     ]);
     row.alignment = { vertical: "top", wrapText: true };
-    row.getCell(1).dataValidation = { type: "list", allowBlank: true, formulae: ['"Accept,Reject,Leave"'] };
+    row.getCell(1).dataValidation = { type: "list", allowBlank: true, formulae: ['"Add to CRM,Keep in RTD only,Later"'] };
     row.getCell(2).dataValidation = { type: "list", allowBlank: true, formulae: ['"Yes"'] };
     row.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4F9DF" } };
   }
@@ -48,7 +48,7 @@ export async function GET() {
   return new Response(buf as ArrayBuffer, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="RTD_Review_${stamp}.xlsx"`,
+      "Content-Disposition": `attachment; filename="RTD_Sync_${stamp}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });

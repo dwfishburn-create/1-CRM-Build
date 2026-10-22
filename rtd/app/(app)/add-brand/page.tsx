@@ -1,4 +1,3 @@
-import { getMe } from "@/lib/supabase";
 import { EXPANSION, FACILITY, MARKETS } from "@/lib/search";
 import { categoryMap, DRIVE_THRU } from "@/lib/rtd";
 import { ActionForm } from "@/app/_components/ActionForm";
@@ -7,22 +6,18 @@ import { addBrand } from "@/app/actions";
 export default async function AddBrand({ searchParams }: PageProps<"/add-brand">) {
   const sp = await searchParams;
   const name = typeof sp.name === "string" ? sp.name : "";
-  const [me, cats] = await Promise.all([getMe(), categoryMap()]);
+  const cats = await categoryMap();
 
   return (
     <>
       <header className="stack" style={{ gap: 6 }}>
         <div className="eyebrow">Not in the directory yet?</div>
         <h1>Add a brand</h1>
-        <p className="muted">
-          {me?.is_admin
-            ? "Saves straight to the CRM after the duplicate check."
-            : "Goes to Dan for review. Only the name is required — add what you know."}
-        </p>
+        <p className="muted">Only the name is required — add what you know. Everyone sees it in the directory as soon as you save.</p>
       </header>
 
       <div className="card">
-        <ActionForm action={addBrand} submitLabel={me?.is_admin ? "Add brand" : "Send to Dan"} className="aform grid2">
+        <ActionForm action={addBrand} submitLabel="Save" className="aform grid2">
           <label className="field span2">Brand name<input name="name" required defaultValue={name} placeholder="Scooter's Coffee" /></label>
           <label className="field">Category
             <select name="category" defaultValue="">
@@ -61,7 +56,7 @@ export default async function AddBrand({ searchParams }: PageProps<"/add-brand">
           <label className="field span2">Site criteria<textarea name="site_criteria" rows={3} /></label>
         </ActionForm>
       </div>
-      <p className="muted small">Add the brand&apos;s contact from its page once it&apos;s in the directory.</p>
+      
     </>
   );
 }

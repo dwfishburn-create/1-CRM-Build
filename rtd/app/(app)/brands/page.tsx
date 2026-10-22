@@ -1,11 +1,21 @@
 import { listCategories, MARKETS, parseParams, searchBrands } from "@/lib/search";
-import { claimsFor } from "@/lib/rtd";
+import Link from "next/link";
+import { db, getMe } from "@/lib/supabase";
+import { claimsFor, shortDay } from "@/lib/rtd";
+import { CrmMark } from "@/app/_components/Marks";
 import { Results } from "../Results";
+
+type NewBrand = { change_id: string; name: string; added_by: string; added_at: string; status: string; category_label: string | null };
 
 export default async function AllBrands({ searchParams }: PageProps<"/brands">) {
   const params = { ...parseParams(await searchParams), size: null, site: "any" };
   const [categories, result] = await Promise.all([listCategories(), searchBrands(params)]);
   const claims = await claimsFor(result.rows.map((r) => r.entity_id));
+  const supabase = await db();
+  const [{ data: nb }, me] = await Promise.all([supabase.rpc("rtd_new_brands"), getMe()]);
+  const q = params.q.toLowerCase();
+  // Brands added in the RTD that don't have a CRM record yet (030).
+  const newBrands = ((nb ?? []) as NewBrand[]).filter((b) => !q || b.name.toLowerCase().includes(q));
 
   return (
     <>
@@ -40,6 +50,23 @@ export default async function AllBrands({ searchParams }: PageProps<"/brands">) 
           </label>
         </div>
       </form>
+
+      {newBrands.length > 0 && params.offset === 0 && (
+        <section className="stack">
+          <h2>Just added</h2>
+          <ul className="picklist newlist">
+            {newBrands.map((b) => (
+              <li key={b.change_id}>
+                <Link href={`/brands/${b.change_id}`}>
+                  <b>{b.name}</b>
+                  <span>{b.category_label ?? "No category"} · added by {b.added_by}, {shortDay(b.added_at)}
+                    {" "}<CrmMark isAdmin={!!me?.is_admin} status={b.status} /></span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {result.error ? (
         <p className="error">Search failed: {result.error}</p>

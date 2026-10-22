@@ -14,7 +14,8 @@ const LINKS = [
 
 export function NavLinks({ isAdmin, reviewCount }: { isAdmin: boolean; reviewCount: number }) {
   const path = usePathname() ?? "/";
-  const links = isAdmin ? [...LINKS, { href: "/review", label: "Review" }] : LINKS;
+  // Dan's private step: copying the team's updates into his CRM.
+  const links = isAdmin ? [...LINKS, { href: "/review", label: "Sync to CRM" }] : LINKS;
   return (
     <div className="navlinks">
       {links.map((l) => {

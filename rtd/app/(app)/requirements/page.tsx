@@ -1,20 +1,19 @@
 import Link from "next/link";
-import { db } from "@/lib/supabase";
+import { getMe } from "@/lib/supabase";
 import { MARKETS, marketLabel, sizeRange } from "@/lib/search";
-import { budgetRange, changeLines, CONFIDENCE, day, REQ_STATUS, todayCentral, when, type Change } from "@/lib/rtd";
+import { budgetRange, CONFIDENCE, day, REQ_STATUS, todayCentral } from "@/lib/rtd";
 import { listRequirements, overdue, parseReqParams, reqQuery, requirementTypes } from "@/lib/requirements";
 
 const PAGE = 200;
 
 export default async function Requirements({ searchParams }: PageProps<"/requirements">) {
   const p = parseReqParams(await searchParams);
-  const supabase = await db();
-  const [{ rows, error }, types, proposals] = await Promise.all([
+  const [{ rows, error }, types, me] = await Promise.all([
     listRequirements(p, PAGE),
     requirementTypes(),
-    supabase.rpc("rtd_requirement_proposals"),
+    getMe(),
   ]);
-  const pending = (proposals.data ?? []) as Change[];
+  const isAdmin = !!me?.is_admin;
   const total = rows[0]?.total_count ?? 0;
   const today = todayCentral();
 
@@ -58,21 +57,6 @@ export default async function Requirements({ searchParams }: PageProps<"/require
         <button className="btn btn-primary">Search</button>
       </form>
 
-      {pending.length > 0 && (
-        <section className="stack">
-          <h2>Waiting for Dan</h2>
-          {pending.map((c) => (
-            <div className="card proposed" key={c.id}>
-              <div>
-                <b>{String(c.payload?.party_name ?? "")}</b>
-                <span className="muted-inline"> · {c.author}, {when(c.created_at)}</span>
-              </div>
-              <ul className="changes">{changeLines(c).map((l) => <li key={l}>{l}</li>)}</ul>
-            </div>
-          ))}
-        </section>
-      )}
-
       <section className="stack">
         <div className="resultshead">
           <h2>{total === 0 ? "No requirements match" : `${total.toLocaleString("en-US")} ${total === 1 ? "requirement" : "requirements"}`}</h2>
@@ -102,8 +86,8 @@ export default async function Requirements({ searchParams }: PageProps<"/require
                   <tr key={r.id}>
                     <td>
                       <Link className="name" href={`/requirements/${r.id}`}>{r.party}</Link>
-                      <div className="sub">{r.display_code}{r.added_by ? ` · added by ${r.added_by}` : " · from Dan's CRM"}</div>
-                      {r.pending_updates > 0 && <span className="pill pill-plain">Update waiting for Dan</span>}
+                      <div className="sub">{r.rtd_only ? "New" : r.display_code}{r.added_by ? ` · added by ${r.added_by}` : " · from Dan's CRM"}</div>
+                      {isAdmin && r.not_in_crm && <span className="pill pill-crm">Not in CRM</span>}
                     </td>
                     <td>
                       {[r.deal_type, r.property_type].filter(Boolean).join(" · ") || "—"}

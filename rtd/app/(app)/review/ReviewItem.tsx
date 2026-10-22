@@ -3,9 +3,9 @@
 import { startTransition, useActionState, useState, type ReactNode } from "react";
 import { decide, importDecisions, type DecideResult, type ImportResult } from "./actions";
 
-// One queue item's buttons. Accept / Reject / Leave; when the database says
-// "conflict" or "duplicate", the item stays and offers the override (Accept
-// anyway / link to the existing person / create as new).
+// One Sync to CRM item's buttons: Add to CRM / Keep in RTD only / Later. When
+// the database says "conflict" or "duplicate", the item stays and offers the
+// override (Add anyway / link to the existing person or company / create new).
 
 export function ReviewItem({
   type, id, kind, conflict, children,
@@ -25,7 +25,7 @@ export function ReviewItem({
     startTransition(() => act(fd));
   }
 
-  if (state?.ok && state.status !== "left") return null; // accepted or rejected — the page refreshes without it
+  if (state?.ok && state.status !== "left") return null; // added or kept — the page refreshes without it
   const dup = state?.status === "duplicate";
   const conf = conflict || state?.status === "conflict";
 
@@ -59,11 +59,11 @@ export function ReviewItem({
           </button>
         ) : (
           <button className="btn btn-primary" disabled={pending} onClick={() => send("accept", conf ? { force: "1" } : {})}>
-            {pending ? "Saving…" : conf ? "Accept anyway" : "Accept"}
+            {pending ? "Saving…" : conf ? "Add anyway" : "Add to CRM"}
           </button>
         )}
-        <button className="btn btn-outline" disabled={pending} onClick={() => send("reject")}>Reject</button>
-        {!left && <button className="btn btn-quiet" disabled={pending} onClick={() => send("leave")}>Leave</button>}
+        <button className="btn btn-outline" disabled={pending} onClick={() => send("keep")}>Keep in RTD only</button>
+        {!left && <button className="btn btn-quiet" disabled={pending} onClick={() => send("leave")}>Later</button>}
         {left && <span className="muted-inline">Left for later</span>}
       </div>
     </div>

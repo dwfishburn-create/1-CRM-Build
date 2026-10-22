@@ -235,3 +235,13 @@ details.inline .aform { gap: 8px; }
 /* Requirements (10/20/2026) */
 .forname { font-size: 18px; font-weight: 700; color: var(--ink); }
 .pill.big { font-size: 15px; padding: 6px 14px; }
+
+/* Live team edits (030, 10/22/2026) */
+.s.updated, .updated { font-size: 12.5px; color: var(--ink-3); }
+.crmmark { color: var(--close-ink); font-weight: 600; }
+.pill-crm { background: var(--close-bg); color: var(--close-ink); }
+.btn-xs { min-height: 30px; font-size: 13px; padding: 0 6px; }
+.hhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.notehead .aform, .hhead .aform, .person .aform { display: inline-flex; flex-direction: row; gap: 6px; }
+.notehead .formfoot, .hhead .formfoot, .person .formfoot { gap: 6px; }
+.newlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
