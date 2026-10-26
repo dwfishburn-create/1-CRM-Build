@@ -12,6 +12,7 @@ import {
   addContact, addNote, claimBrand, contactLeft, markVerified, proposeEdit, releaseBrand, removeNote, undoChange, updateContact,
 } from "@/app/actions";
 import { NewBrandView } from "./NewBrandView";
+import { brandLiquor, phone, saleLabel } from "@/lib/liquor";
 
 type Contact = {
   contact_id: string | null; change_id?: string; name: string; title: string | null; email: string | null;
@@ -43,10 +44,11 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const supabase = await db();
-  const [{ data, error }, act, cats] = await Promise.all([
+  const [{ data, error }, act, cats, liquor] = await Promise.all([
     supabase.rpc("rtd_brand", { p_entity_id: id }),
     supabase.rpc("rtd_brand_activity", { p_entity_id: id }),
     categoryMap(),
+    brandLiquor(id),
   ]);
   if (error) return <p className="error">Couldn&apos;t load this brand: {error.message}</p>;
   if (!data) {
@@ -256,6 +258,37 @@ export default async function BrandPage({ params }: PageProps<"/brands/[id]">) {
                 {isAdmin && r.in_crm === false && <span className="pill pill-crm">Not in CRM</span>}
               </div>
             ))
+          )}
+
+          {liquor && liquor.licenses.length > 0 && (
+            <>
+              <h2>Nebraska liquor licenses</h2>
+              <p className="muted small">
+                {liquor.active} active on the {liquor.latest_snapshot_date ?? "latest"} NLCC roster — public record, unverified.
+              </p>
+              <div className="tablebox">
+                <table>
+                  <thead>
+                    <tr><th scope="col">Location</th><th scope="col">Licensee</th><th scope="col">Manager · contact</th></tr>
+                  </thead>
+                  <tbody>
+                    {liquor.licenses.slice(0, 50).map((l) => (
+                      <tr key={l.license_number}>
+                        <td>
+                          {l.premises_street}
+                          <div className="sub">{[l.premises_city, saleLabel(l.sale_type), `class ${l.class}`].filter(Boolean).join(" · ")}</div>
+                          {l.status === "dropped" && <span className="pill pill-x">Dropped {l.dropped_on}</span>}
+                        </td>
+                        <td>{l.licensee}<div className="sub">{l.trade_name}</div></td>
+                        <td>{l.manager_name ?? <span className="sub">No manager listed</span>}
+                          <div className="sub">{[phone(l.phone), l.email].filter(Boolean).join(" · ")}</div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {liquor.licenses.length > 50 && <p className="muted small">Showing 50 of {liquor.licenses.length}.</p>}
+            </>
           )}
 
           {b.profile_notes && (

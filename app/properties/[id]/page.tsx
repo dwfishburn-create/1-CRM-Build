@@ -30,6 +30,7 @@ import {
 } from "@/app/_components/RecordParts";
 import { LogActivityForm } from "@/app/_components/LogActivityForm";
 import { contactOptions } from "@/lib/contactOptions";
+import { LicensePanel } from "@/app/liquor-licenses/LicensePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -323,6 +324,8 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
           </ul>
         )}
       </Section>
+
+      <LicensePanel propertyId={id} />
 
       <Section title="Spaces & leases" count={spaces?.length ?? 0}>
         {(spaces ?? []).length > 0 && (

@@ -22,6 +22,7 @@ const LINKS = [
   { href: "/map", label: "Map" },
   { href: "/entities", label: "Entities" },
   { href: "/directory", label: "Tenant Directory" },
+  { href: "/liquor-licenses", label: "Liquor Licenses" },
   { href: "/projects", label: "Projects" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/requirements", label: "Requirements" },

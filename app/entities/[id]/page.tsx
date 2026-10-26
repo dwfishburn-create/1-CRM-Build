@@ -31,6 +31,7 @@ import { LogActivityForm } from "@/app/_components/LogActivityForm";
 import { contactOptions } from "@/lib/contactOptions";
 import { listCategories } from "@/lib/retailBrands";
 import { BrandProfile, type BrandPerson, type BrandRow } from "./BrandProfile";
+import { LicensePanel } from "../../liquor-licenses/LicensePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -287,6 +288,8 @@ export default async function EntityDetailPage(props: PageProps<"/entities/[id]"
       <Section title="Open tasks" count={tasks?.length ?? 0}>
         <TaskList tasks={tasks ?? []} returnPath={here} contacts={allContacts} />
       </Section>
+
+      <LicensePanel entityId={entity.id} />
 
       <Section title="People" count={people.size}>
         {people.size === 0 ? (

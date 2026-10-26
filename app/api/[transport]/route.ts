@@ -135,6 +135,12 @@ import { getSopChecklist } from "@/lib/sopMatrix";
 // Same thin-pass-through convention: the validation lives once, in
 // lib/retailBrands.ts and lib/requirementReconfirm.ts, shared with the web
 // screens.
+//
+// Nebraska liquor licenses added 10/26/2026 (migration 032, connector 1.18.0):
+// find_liquor_licenses / list_liquor_operators / list_liquor_license_changes /
+// get_liquor_license_status / link_liquor_license / list_liquor_brand_matches /
+// decide_liquor_brand_match. The roster is a reference dataset, not CRM
+// records; the validation lives once, in lib/liquorLicenses.ts.
 
 function toolResult(result: AgentApiResult) {
   if (!result.ok) {
@@ -2475,6 +2481,213 @@ server.registerTool(
       },
       async (args) => toolResult(await agentApiPatch("property-expenses", args))
     );
+
+    // -----------------------------------------------------------------------
+    // Nebraska liquor licenses (10/26/2026, migration 032, connector 1.18.0).
+    // A reference dataset refreshed from NLCC roster pulls — NOT contacts or
+    // entities. Promote a licensee only when Dan works it: find_entity /
+    // create_entity (or find_contact / create_contact for the manager), then
+    // link_liquor_license. Thin pass-throughs to /api/agent/liquor-licenses*.
+    // -----------------------------------------------------------------------
+    server.registerTool(
+      "find_liquor_licenses",
+      {
+        title: "Find Nebraska liquor licenses",
+        description:
+          "Search the Nebraska Liquor Control Commission roster (Nebraska retail + misc licenses; " +
+          "out-of-state shippers are not loaded). USE IT FOR PROSPECT LISTS: restaurants and bars " +
+          "(sale_types on_premise + both), c-stores / grocery / liquor stores (off_premise), " +
+          "breweries / wineries / distilleries (maker) in a city or county, multi-unit operators " +
+          "(min_operator: 3 = the licensee holds 3+ active licenses statewide), new licenses " +
+          "since a roster date (openings), dropped licenses (closures — likely vacancies). Each " +
+          "row carries trade name, premises address, licensee company, manager, phone, email, " +
+          "class, operator_licenses, and any links: brand_entity_id (Tenant Directory brand), " +
+          "licensee_entity_id (the operating company in the CRM), property_id (a CRM property " +
+          "at the premises). link sources: 'auto' = exact name/address match, 'dan' = set by " +
+          "Dan. q matches trade name, licensee, manager, email, license number, street or city. " +
+          "entity_id returns licenses whose brand OR licensee company is that entity. Give " +
+          "license_number alone to get one license with its change history. The roster is a " +
+          "point-in-time NLCC pull — say its date (get_liquor_license_status) when presenting " +
+          "contacts, and that data is unverified public record. Default 50 rows, max 1000; " +
+          "page with offset when has_more is true.",
+        inputSchema: {
+          license_number: z.string().optional(),
+          q: z.string().optional(),
+          city: z.string().optional(),
+          county: z.string().optional(),
+          sale_types: z.array(z.enum(["on_premise", "both", "off_premise", "maker", "wholesale", "other"])).optional(),
+          status: z.enum(["active", "dropped", "all"]).optional(),
+          min_operator: z.number().int().min(1).optional(),
+          new_since: z.string().optional(),
+          dropped_since: z.string().optional(),
+          entity_id: z.string().optional(),
+          property_id: z.string().optional(),
+          brand: z.enum(["any", "linked", "unlinked"]).optional(),
+          sort: z.enum(["name", "operator", "newest", "city"]).optional(),
+          limit: z.number().int().min(1).max(1000).optional(),
+          offset: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ sale_types, min_operator, limit, offset, ...rest }) =>
+        toolResult(
+          await agentApiGet("liquor-licenses", {
+            ...rest,
+            sale_types: sale_types?.join(","),
+            min_operator: min_operator?.toString(),
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "list_liquor_operators",
+      {
+        title: "List multi-unit liquor license operators",
+        description:
+          "Group the active Nebraska liquor licenses by operator (the licensee company, or the " +
+          "licensee name when it isn't linked to a CRM entity): license_count statewide, " +
+          "in_area_count inside the county / city / sale_types filter, cities, trade names, " +
+          "linked brands, a sample email / phone and the corporate address. Sorted by licenses " +
+          "in the area. This is the multi-unit restaurant / bar / c-store operator prospect list: " +
+          "e.g. min_licenses 3, county \"Douglas\", sale_types [on_premise, both]. Default " +
+          "min_licenses 2, 100 rows, max 1000.",
+        inputSchema: {
+          min_licenses: z.number().int().min(1).optional(),
+          county: z.string().optional(),
+          city: z.string().optional(),
+          sale_types: z.array(z.enum(["on_premise", "both", "off_premise", "maker", "wholesale", "other"])).optional(),
+          q: z.string().optional(),
+          limit: z.number().int().min(1).max(1000).optional(),
+          offset: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ min_licenses, sale_types, limit, offset, ...rest }) =>
+        toolResult(
+          await agentApiGet("liquor-licenses/operators", {
+            ...rest,
+            min_licenses: min_licenses?.toString(),
+            sale_types: sale_types?.join(","),
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "list_liquor_license_changes",
+      {
+        title: "List liquor license changes between roster pulls",
+        description:
+          "What successive NLCC roster pulls say changed — the prospecting signal. types: new " +
+          "(a license that wasn't on the previous roster: an opening or new operator), dropped " +
+          "(on the previous roster, gone now: a closure or non-renewal — likely a vacancy), " +
+          "returned, licensee (new licensee at the same license: a sale?), trade_name, manager, " +
+          "class, address. The first roster ever loaded is the baseline and records no 'new'. " +
+          "since = roster date (YYYY-MM-DD). Filter by county, city, sale_types. Newest first.",
+        inputSchema: {
+          since: z.string().optional(),
+          types: z.array(z.enum(["new", "dropped", "returned", "licensee", "trade_name", "manager", "class", "address"])).optional(),
+          county: z.string().optional(),
+          city: z.string().optional(),
+          sale_types: z.array(z.enum(["on_premise", "both", "off_premise", "maker", "wholesale", "other"])).optional(),
+          limit: z.number().int().min(1).max(1000).optional(),
+          offset: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ types, sale_types, limit, offset, ...rest }) =>
+        toolResult(
+          await agentApiGet("liquor-licenses/changes", {
+            ...rest,
+            types: types?.join(","),
+            sale_types: sale_types?.join(","),
+            limit: limit?.toString(),
+            offset: offset?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "get_liquor_license_status",
+      {
+        title: "Liquor license roster status",
+        description:
+          "The roster's date and counts: latest_snapshot_date (the NLCC roster date the data is " +
+          "as of — quote it), active / dropped on file, how many are linked to a brand, a " +
+          "licensee company and a property, every roster pull with its new / dropped / changed " +
+          "counts, the counties on file and the class codes with their sale types. New pulls are " +
+          "loaded by Dan on the CRM's Liquor Licenses → Import roster page.",
+        inputSchema: {},
+      },
+      async () => toolResult(await agentApiGet("liquor-licenses/meta", {}))
+    );
+    server.registerTool(
+      "link_liquor_license",
+      {
+        title: "Link a liquor license to CRM records",
+        description:
+          "Set or clear one license's links by license_number: brand_entity_id (must be a Tenant " +
+          "Directory brand — 409 otherwise), licensee_entity_id (the operating company / " +
+          "franchisee — any entity), property_id (the CRM property at the premises), contact_id " +
+          "(the manager, once promoted), notes (Dan's; never shown in the RTD). clear: list of " +
+          "brand, licensee, property, contact — a cleared link goes back to automatic matching. " +
+          "A link set here is Dan's and survives every later roster import. TO PROMOTE A " +
+          "LICENSEE when Dan works it: find_entity on the licensee name; create_entity only if " +
+          "not on file (its duplicate gate applies); the same for the manager with find_contact / " +
+          "create_contact; then this tool. Never bulk-promote the roster into entities or contacts.",
+        inputSchema: {
+          license_number: z.string().min(1),
+          brand_entity_id: z.string().optional(),
+          licensee_entity_id: z.string().optional(),
+          property_id: z.string().optional(),
+          contact_id: z.string().optional(),
+          notes: z.string().optional(),
+          clear: z.array(z.enum(["brand", "licensee", "property", "contact"])).optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPatch("liquor-licenses", args))
+    );
+    server.registerTool(
+      "list_liquor_brand_matches",
+      {
+        title: "List liquor license brand near matches",
+        description:
+          "Near matches between license trade names and Tenant Directory brands, for Dan to " +
+          "review (Dan, 10/26/2026: exact matches link automatically, near matches go to him as an " +
+          "Excel sheet). One row per (brand_key, candidate brand), up to 3 candidates per key, " +
+          "keys with the most licenses first. brand_key is the trade name without store numbers " +
+          "and LLC/Inc. Build the Excel from this (brand_key, sample trade name, licenses, " +
+          "cities, candidate, score, a Decision column) and apply Dan's answers with " +
+          "decide_liquor_brand_match. Only keys with no link and no decision are listed.",
+        inputSchema: {
+          min_score: z.number().min(0.3).max(1).optional(),
+          limit: z.number().int().min(1).max(5000).optional(),
+        },
+      },
+      async ({ min_score, limit }) =>
+        toolResult(
+          await agentApiGet("liquor-licenses/brand-matches", {
+            min_score: min_score?.toString(),
+            limit: limit?.toString(),
+          })
+        )
+    );
+    server.registerTool(
+      "decide_liquor_brand_match",
+      {
+        title: "Decide a liquor license brand match",
+        description:
+          "Record Dan's decision for one brand_key (from list_liquor_brand_matches): decision " +
+          "'link' with entity_id (a Tenant Directory brand) links every license with that key, " +
+          "now and in every later roster pull; 'not_a_match' stops suggesting it; 'clear' forgets " +
+          "the decision and returns the key to automatic exact matching. Only Dan's own " +
+          "decisions — never decide a match he hasn't confirmed.",
+        inputSchema: {
+          brand_key: z.string().min(1),
+          decision: z.enum(["link", "not_a_match", "clear"]),
+          entity_id: z.string().optional(),
+          note: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("liquor-licenses/brand-matches", args))
+    );
   },
   {
     // version bumped 9/3/2026 (was a static "1.0.0" since this connector was
@@ -2485,7 +2698,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.17.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.18.0" },
     verboseLogs: true,
   }
 );

@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/searches", label: "Saved searches" },
   { href: "/brands", label: "All brands" },
   { href: "/requirements", label: "Requirements" },
+  { href: "/liquor", label: "Liquor licenses" },
   { href: "/intel", label: "Quick note" },
   { href: "/new", label: "What's new" },
   { href: "/add-brand", label: "Add a brand" },
