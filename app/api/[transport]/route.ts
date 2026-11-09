@@ -1170,7 +1170,8 @@ server.registerTool(
         title: "Create project",
         description:
           "Create a project (a formal engagement). project_type is Dan's engagement taxonomy " +
-          "(TR/BR/CL/CS/L/LRT/LRLL/SL) as free text. deal_price/commission_rate/probability_pct/ " +
+          "(TR/BR/CL/CS/L/LRT/LRLL/SL/BOV) as free text. BOV (Broker Opinion of Value, added " +
+          "11/9/2026) is advisory: no transaction, kept out of pipeline totals and the setup card. deal_price/commission_rate/probability_pct/ " +
           "strategic_weight_note are the Value/Probability/Expected-Value scoring fields (added " +
           "9/2/2026) — all optional at creation since deal terms are typically filled in later, " +
           "as Dan pulls deal documents into the project. deal_value and expected_value are " +
@@ -1304,7 +1305,7 @@ server.registerTool(
       {
         title: "Get the full companion-SOP matrix",
         description:
-          "Return the entire companion-SOP routing matrix — every SOP row across all eight " +
+          "Return the entire companion-SOP routing matrix — every SOP row across all nine " +
           "engagement-type codes — plus its staleness verdict and the exact sop_name values " +
           "needed to edit a cell with update_sop_matrix. Use get_sop_checklist instead when you " +
           "only need one engagement's checklist; use this when reconciling the matrix against " +
