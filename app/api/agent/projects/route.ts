@@ -57,7 +57,8 @@ export async function GET(request: NextRequest) {
 // Body: { project_code, project_type, client_name, status?, start_date?,
 //         target_close_date?, notes?, deal_price?, commission_rate?,
 //         probability_pct?, strategic_weight_note? }
-// project_type is Dan's existing engagement taxonomy: TR/BR/CL/CS/L/LRT/LRLL.
+// project_type is Dan's existing engagement taxonomy: TR/BR/CL/CS/L/LRT/LRLL/SL/BOV
+// (lib/projectTypes.ts). Free text, so compound values like "BR/L" stay valid.
 // Mirrors app/projects/actions.ts:createProject field-for-field.
 //
 // deal_price/commission_rate/probability_pct/strategic_weight_note are the
