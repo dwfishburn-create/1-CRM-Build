@@ -10,6 +10,12 @@
 //                    status so a win rate is computable
 //   receivable       a Won deal's unpaid commission_payments row — owed, not
 //                    probability-weighted
+//
+// 11/9/2026: advisory engagements (BOV) are outside the pipeline — no
+// probability-by-phase, no setup card, and excluded from totals and any win
+// rate. Filter with isPipelineType() from lib/projectTypes.ts. A BOV that
+// does carry a fee still records it here and its commission_payments still
+// show as receivables.
 
 export const FEE_BASES = [
   { value: "sale_price", label: "Sale price × %" },
