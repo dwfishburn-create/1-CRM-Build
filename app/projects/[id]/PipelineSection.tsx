@@ -13,6 +13,7 @@ import {
   roleLabel,
   usd,
 } from "@/lib/pipeline";
+import { isPipelineType } from "@/lib/projectTypes";
 import {
   addParticipantAction,
   addPaymentAction,
@@ -34,6 +35,7 @@ import {
 
 type ProjectRow = {
   id: string;
+  project_type: string;
   status: string;
   result: string;
   result_date: string | null;
@@ -86,8 +88,14 @@ const btnSolid = "bg-blue-600 text-white rounded px-4 py-2 h-fit";
 const btnPlain = "border border-gray-300 dark:border-neutral-700 rounded px-3 py-2 h-fit";
 const cell = "py-2 pr-3";
 
-export function needsSetup(p: Pick<ProjectRow, "status" | "result" | "pipeline_setup_at">): boolean {
-  return p.status === "active" && p.result === "active" && !p.pipeline_setup_at;
+// 11/9/2026: advisory engagements (BOV) never get the setup card — there are
+// no splits, probability or expected close to collect on a valuation memo.
+export function needsSetup(
+  p: Pick<ProjectRow, "project_type" | "status" | "result" | "pipeline_setup_at">
+): boolean {
+  return (
+    isPipelineType(p.project_type) && p.status === "active" && p.result === "active" && !p.pipeline_setup_at
+  );
 }
 
 async function load(projectId: string) {
@@ -96,7 +104,7 @@ async function load(projectId: string) {
       supabase
         .from("projects")
         .select(
-          "id, status, result, result_date, result_note, fee_basis, deal_price, commission_rate, deal_value, dan_share_pct, dan_share_value, probability_pct, expected_share_value, target_close_date, strategic_weight_note, pipeline_setup_at"
+          "id, project_type, status, result, result_date, result_note, fee_basis, deal_price, commission_rate, deal_value, dan_share_pct, dan_share_value, probability_pct, expected_share_value, target_close_date, strategic_weight_note, pipeline_setup_at"
         )
         .eq("id", projectId)
         .maybeSingle()
@@ -304,6 +312,9 @@ export default async function PipelineSection({
         Gross is the whole fee. Your share is after deal-level splits and before CBRE&apos;s payout;
         expected is your share × probability.
         {needsSetup(p) && <> This deal hasn&apos;t been set up yet — use the card at the top of the page.</>}
+        {!isPipelineType(p.project_type) && (
+          <> Advisory engagement (BOV): not counted in pipeline totals, probability or win rate.</>
+        )}
       </p>
 
       <Figures p={p} />
