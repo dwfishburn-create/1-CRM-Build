@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { createProject } from "./actions";
+import { PROJECT_TYPE_CODES, PROJECT_TYPE_LABELS } from "@/lib/projectTypes";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,8 @@ type ProjectRow = {
 // live compound/undecided case like "TR/BR" (deal path not yet chosen)
 // stays possible — pick one of these for the normal case, or type a
 // "X/Y" combo directly in this field if the path is genuinely undecided.
-const PROJECT_TYPES = ["TR", "BR", "CL", "CS", "L", "LRT", "LRLL", "SL"];
+// 11/9/2026: the list now comes from lib/projectTypes.ts (BOV added there).
+const PROJECT_TYPES = PROJECT_TYPE_CODES;
 
 const STATUSES = [
   { value: "active", label: "Active" },
@@ -48,7 +50,7 @@ export default async function ProjectsPage() {
     <div className="p-8 max-w-5xl mx-auto">
       <h1 className="text-2xl font-semibold mb-1">Projects</h1>
       <p className="text-gray-500 mb-6 text-sm">
-        Formal assignments — TR/BR/CL/CS/L/LRT/LRLL per your existing SOP.
+        Formal assignments — TR/BR/CL/CS/L/LRT/LRLL/SL/BOV per your existing SOP.
         Open a project to link and track candidate properties (Candidate →
         Toured → Selected/Rejected).
       </p>
@@ -74,7 +76,7 @@ export default async function ProjectsPage() {
           </option>
           {PROJECT_TYPES.map((t) => (
             <option key={t} value={t}>
-              {t}
+              {t} — {PROJECT_TYPE_LABELS[t]}
             </option>
           ))}
         </select>
