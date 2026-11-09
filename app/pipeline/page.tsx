@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { todayCentral } from "@/lib/contactOptions";
 import { feeBasisLabel, missingFields, pct, usd } from "@/lib/pipeline";
+import { isPipelineType } from "@/lib/projectTypes";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 // the probability-weighted share; Won deals' unpaid commission listed
 // separately as receivables — owed money is not weighted (10/6/2026).
 // Share = after deal-level splits, before CBRE's internal payout (9/26/2026).
+// 11/9/2026: advisory engagements (BOV) are left out of the deal list and the
+// totals — no transaction, no probability, nothing to win or lose
+// (lib/projectTypes.ts isPipelineType). They still show on /projects.
 
 type Deal = {
   id: string;
@@ -68,7 +72,8 @@ export default async function PipelinePage() {
       .returns<Payment[]>(),
   ]);
 
-  const rows = [...(deals ?? [])].sort(
+  const advisory = (deals ?? []).filter((d) => !isPipelineType(d.project_type));
+  const rows = [...(deals ?? [])].filter((d) => isPipelineType(d.project_type)).sort(
     (a, b) =>
       (Number(b.expected_share_value) || 0) - (Number(a.expected_share_value) || 0) ||
       (Number(b.dan_share_value) || 0) - (Number(a.dan_share_value) || 0) ||
@@ -132,6 +137,21 @@ export default async function PipelinePage() {
           </div>
         </div>
       </div>
+
+      {advisory.length > 0 && (
+        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+          {advisory.length} advisory engagement{advisory.length === 1 ? "" : "s"} (BOV) not counted here —{" "}
+          {advisory.map((d, i) => (
+            <span key={d.id}>
+              {i > 0 && ", "}
+              <Link href={`/projects/${d.id}`} className="text-blue-600 dark:text-blue-400 hover:underline">
+                {d.project_code}
+              </Link>
+            </span>
+          ))}
+          .
+        </p>
+      )}
 
       {notSetUp > 0 && (
         <p className="mb-4 text-sm text-blue-700 dark:text-blue-300">
