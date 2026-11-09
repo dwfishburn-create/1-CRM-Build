@@ -28,34 +28,16 @@
 // source_last_synced. Section 5 of the SOP doc carries that step.
 
 import { supabase } from "@/lib/supabase";
+import { PROJECT_TYPE_CODES, splitProjectType, type ProjectTypeCode } from "@/lib/projectTypes";
 
 export type SopStatus = "Load" | "Adapt" | "Gap" | "N/A";
 
 export const SOP_STATUSES: readonly SopStatus[] = ["Load", "Adapt", "Gap", "N/A"] as const;
 
-export const PROJECT_TYPE_CODES = [
-  "TR",
-  "BR",
-  "CL",
-  "CS",
-  "L",
-  "LRT",
-  "LRLL",
-  "SL",
-] as const;
-
-export type ProjectTypeCode = (typeof PROJECT_TYPE_CODES)[number];
-
-export const PROJECT_TYPE_LABELS: Record<ProjectTypeCode, string> = {
-  TR: "Tenant Representation",
-  BR: "Buyer Representation",
-  CL: "Commercial Lease Listing",
-  CS: "Commercial Sale Listing",
-  L: "Land Listing",
-  LRT: "Lease Renewal (Tenant)",
-  LRLL: "Lease Renewal (Landlord)",
-  SL: "Sub-Lease Listing",
-};
+// The code list lives in lib/projectTypes.ts (one source of truth, 11/9/2026 —
+// BOV added). Re-exported here so existing imports keep working.
+export { PROJECT_TYPE_CODES, PROJECT_TYPE_LABELS } from "@/lib/projectTypes";
+export type { ProjectTypeCode } from "@/lib/projectTypes";
 
 export const SOP_MATRIX_SOURCE_DOC =
   "New_Project_Setup_and_Categorization_-_SOP.md, Section 4";
@@ -215,10 +197,7 @@ export async function getSopMatrix() {
  * by name. Don't rename it without updating that instruction.
  */
 export async function getSopChecklist(projectType: string) {
-  const requested = projectType
-    .split("/")
-    .map((s) => s.trim().toUpperCase())
-    .filter(Boolean);
+  const requested = splitProjectType(projectType);
 
   const recognized = requested.filter((c): c is ProjectTypeCode =>
     (PROJECT_TYPE_CODES as readonly string[]).includes(c)
