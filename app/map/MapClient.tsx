@@ -189,6 +189,23 @@ export default function MapClient({
       ]);
       if (MAPBOX_TOKEN) {
         mapbox.addTo(map);
+        // Survey Map Standard fallback rule, made automatic: if Mapbox tiles
+        // fail (bad/expired token, rate limit, Mapbox outage) before any tile
+        // has loaded, swap to Esri so the map is never blank. Also the durable
+        // fix the 9/9/2026 "basemap regressed silently" open question asked for.
+        let loaded = 0;
+        let failed = 0;
+        mapbox.on("tileload", () => {
+          loaded += 1;
+        });
+        mapbox.on("tileerror", () => {
+          failed += 1;
+          if (loaded === 0 && failed >= 4 && map.hasLayer(mapbox)) {
+            map.removeLayer(mapbox);
+            esri.addTo(map);
+            console.warn("[map] Mapbox tiles failing — switched to Esri imagery");
+          }
+        });
         L.control
           .layers({ "Satellite Streets (Mapbox)": mapbox, "Esri imagery": esri }, undefined, {
             position: "bottomleft",
