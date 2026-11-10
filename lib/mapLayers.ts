@@ -24,6 +24,7 @@ export type LayerKey =
   | "advisory"
   | "market"
   | "comps"
+  | "realnex"
   | "other";
 
 export type LayerGroupKey =
@@ -34,6 +35,7 @@ export type LayerGroupKey =
   | "advisory"
   | "market"
   | "comps"
+  | "realnex"
   | "other";
 
 export type LayerDef = {
@@ -61,6 +63,7 @@ export const LAYERS: LayerDef[] = [
   { key: "advisory", group: "advisory", label: "BOVs / advisory", color: "#be185d", historical: false, defaultOn: false },
   { key: "market", group: "market", label: "Market listings (on market)", color: "#d97706", historical: false, defaultOn: true },
   { key: "comps", group: "comps", label: "Comps (sale / lease)", color: "#334155", historical: false, defaultOn: false },
+  { key: "realnex", group: "realnex", label: "RealNex properties (imported 11/10)", color: "#64748b", historical: false, defaultOn: false },
   { key: "other", group: "other", label: "Other researched properties", color: "#16a34a", historical: false, defaultOn: false },
 ];
 
@@ -120,6 +123,7 @@ export function layersForProperty(input: {
   deals: DealLink[];
   market_status: string | null;
   hasComp: boolean;
+  source_system?: string | null;
 }): LayerKey[] {
   const set = new Set<LayerKey>();
   for (const d of input.deals) {
@@ -128,6 +132,8 @@ export function layersForProperty(input: {
   }
   if (input.market_status === "on_market") set.add("market");
   if (input.hasComp) set.add("comps");
-  if (set.size === 0) set.add("other");
+  // Imported RealNex rows Dan hasn't worked yet get their own toggle (off by
+  // default) so ~3,800 pins don't bury his own deals.
+  if (set.size === 0) set.add(input.source_system === "realnex" ? "realnex" : "other");
   return LAYERS.map((l) => l.key).filter((k) => set.has(k));
 }
