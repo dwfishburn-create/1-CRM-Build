@@ -7,6 +7,29 @@ import type { Map as LeafletMap, FeatureGroup, LayerGroup, CircleMarker } from "
 import { withinPolygon } from "@/lib/geo";
 import { saveTerritory, deleteTerritory } from "./actions";
 import type { MapProperty, SavedPolygonRow, ProjectOption } from "./page";
+import { LAYERS, LAYER_BY_KEY, layerForDeal, isCurrentProject, type LayerKey } from "@/lib/mapLayers";
+
+// Mapbox Satellite Streets — the Property Survey Map Standard's default
+// basemap (big-box POI labels at street zoom). The public pk token lives in
+// the NEXT_PUBLIC_MAPBOX_TOKEN env var (Vercel), not in the repo; without it
+// the map falls back to Esri imagery, per the standard's fallback rule.
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
+const MAPBOX_URL = `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
+
+function esc(v: string | number | null | undefined): string {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+const LINK_STATUS_LABEL: Record<string, string> = {
+  candidate: "candidate",
+  toured: "toured",
+  selected: "selected",
+  rejected: "rejected",
+};
 
 const OMAHA_CENTER: [number, number] = [41.2565, -95.9345];
 
@@ -114,6 +137,10 @@ export default function MapClient({
     partial: true,
     confirmed: true,
   });
+  const [layerFilter, setLayerFilter] = useState<Record<LayerKey, boolean>>(
+    () => Object.fromEntries(LAYERS.map((l) => [l.key, l.defaultOn])) as Record<LayerKey, boolean>
+  );
+  const [legendOpen, setLegendOpen] = useState(true);
   const [activeRing, setActiveRing] = useState<[number, number][] | null>(null);
   const [zoneName, setZoneName] = useState("");
   const [zoneProjectId, setZoneProjectId] = useState("");
@@ -137,22 +164,38 @@ export default function MapClient({
 
       if (cancelled || !mapDivRef.current || mapRef.current) return;
 
-      const map = L.map(mapDivRef.current, { zoomControl: true }).setView(
+      const map = L.map(mapDivRef.current, { zoomControl: true, preferCanvas: true }).setView(
         OMAHA_CENTER,
         11
       );
 
-      // Esri World_Imagery satellite basemap + a light reference/label
-      // overlay on top, per Dan's established Property Survey — HTML Map
-      // Standard (same base map style, reused here for an in-app screen).
-      L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 19, attribution: "Esri" }
-      ).addTo(map);
-      L.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 19, opacity: 0.85 }
-      ).addTo(map);
+      // Mapbox Satellite Streets by default (Survey Map Standard), with Esri
+      // imagery + labels as a switchable fallback.
+      const mapbox = L.tileLayer(MAPBOX_URL, {
+        maxZoom: 20,
+        tileSize: 256,
+        attribution: "© Mapbox © OpenStreetMap",
+      });
+      const esri = L.layerGroup([
+        L.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          { maxZoom: 19, attribution: "Esri" }
+        ),
+        L.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+          { maxZoom: 19, opacity: 0.85 }
+        ),
+      ]);
+      if (MAPBOX_TOKEN) {
+        mapbox.addTo(map);
+        L.control
+          .layers({ "Satellite Streets (Mapbox)": mapbox, "Esri imagery": esri }, undefined, {
+            position: "bottomleft",
+          })
+          .addTo(map);
+      } else {
+        esri.addTo(map);
+      }
 
       const drawnItems = new L.FeatureGroup();
       map.addLayer(drawnItems);
@@ -237,29 +280,65 @@ export default function MapClient({
         const status = (p.research_status ?? "unresearched") as StatusKey;
         if (!statusFilter[status]) continue;
 
+        // Show the property if any of its layers is on; color by the
+        // highest-priority layer that's on.
+        const visible = (p.layers ?? ["other"]).filter((k) => layerFilter[k]);
+        if (!visible.length) continue;
+        const layer = LAYER_BY_KEY[visible[0]];
+        const fill = layer.key === "other" ? STATUS_COLOR[status] ?? layer.color : layer.color;
+
         const marker = L.circleMarker([p.latitude, p.longitude], {
-          radius: 7,
+          radius: layer.historical ? 6 : 7,
           color: "#111827",
           weight: 1,
-          fillColor: STATUS_COLOR[status] ?? "#9ca3af",
-          fillOpacity: 0.9,
+          dashArray: layer.historical ? "2 2" : undefined,
+          fillColor: fill,
+          fillOpacity: layer.historical ? 0.7 : 0.9,
         });
 
-        const priorityLine = p.priority ? `<div>Priority: ${p.priority}</div>` : "";
+        const dealLines = (p.deals ?? [])
+          .map((d) => {
+            const lk = layerForDeal(d);
+            const tag = isCurrentProject(d.project_status) ? "current" : "historical";
+            const sw = lk ? LAYER_BY_KEY[lk].color : "#9ca3af";
+            return `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${sw};margin-right:4px"></span><a href="/projects/${esc(d.project_id)}" style="text-decoration:underline">${esc(d.project_code)}</a> · ${esc(tag)}${
+              d.link_status && d.link_status !== "selected" ? ` · ${esc(LINK_STATUS_LABEL[d.link_status] ?? d.link_status)}` : ""
+            }</div>`;
+          })
+          .join("");
+        const ownerLine = (p.owners ?? []).length
+          ? `<div><b>Owner:</b> ${(p.owners ?? [])
+              .map((o) => esc(o.name) + (o.is_current ? "" : " (former)"))
+              .join("; ")}</div>`
+          : `<div><b>Owner:</b> <i>not linked</i></div>`;
+        const compLines = (p.comps ?? [])
+          .map((c) => `<div>${c.kind === "sale" ? "Sold" : "Leased"} ${esc(c.date ?? "")} · ${esc(c.summary)}</div>`)
+          .join("");
+        const linkLines = (p.links ?? [])
+          .map((l) =>
+            l.url
+              ? `<div><a href="${esc(l.url)}" target="_blank" rel="noopener" style="text-decoration:underline">${esc(l.label)} →</a></div>`
+              : ""
+          )
+          .join("");
+        const priorityLine = p.priority ? `<div>Priority: ${esc(p.priority)}</div>` : "";
         const notesLine = p.notes
-          ? `<div class="mt-1 text-gray-600">${p.notes.slice(0, 140)}${p.notes.length > 140 ? "…" : ""}</div>`
+          ? `<div style="margin-top:4px;color:#4b5563">${esc(p.notes.slice(0, 160))}${p.notes.length > 160 ? "…" : ""}</div>`
           : "";
         marker.bindPopup(
-          `<div style="min-width:200px">
-            <div style="font-weight:600">${p.display_code ?? "—"} · ${p.address}</div>
-            <div>${[p.city, p.state].filter(Boolean).join(", ")}</div>
-            <div>${p.property_type ?? "—"} ${
-            p.building_sf ? `· ${p.building_sf.toLocaleString()} SF` : ""
-          }${p.land_acres ? `· ${p.land_acres} ac` : ""}</div>
-            <div>Research: ${STATUS_LABEL[status] ?? status} · Market: ${
-            p.market_status ?? "—"
-          }</div>
-            <div>Owner linked: ${ownerLinked.has(p.id) ? "Yes" : "No"}</div>
+          `<div style="min-width:240px;max-width:320px">
+            <div style="font-weight:600"><a href="/properties/${esc(p.id)}" style="text-decoration:underline">${esc(p.display_code ?? "—")}</a> · ${esc(p.address)}${
+              p.suite_number ? ` Ste ${esc(p.suite_number)}` : ""
+            }</div>
+            <div>${esc([p.city, p.state].filter(Boolean).join(", "))}</div>
+            <div>${esc(p.property_type ?? "—")}${p.building_sf ? ` · ${p.building_sf.toLocaleString()} SF` : ""}${
+              p.land_acres ? ` · ${p.land_acres} ac` : ""
+            }</div>
+            <div>Research: ${esc(STATUS_LABEL[status] ?? status)} · Market: ${esc(p.market_status ?? "—")}</div>
+            ${ownerLine}
+            ${dealLines ? `<div style="margin-top:4px"><b>Deals</b>${dealLines}</div>` : ""}
+            ${compLines ? `<div style="margin-top:4px"><b>Comps</b>${compLines}</div>` : ""}
+            ${linkLines ? `<div style="margin-top:4px">${linkLines}</div>` : ""}
             ${priorityLine}
             ${notesLine}
           </div>`
@@ -273,8 +352,7 @@ export default function MapClient({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapReady, properties, statusFilter]);
+  }, [mapReady, properties, statusFilter, layerFilter]);
 
   // ---- Matched properties are a pure derivation of the active ring ----
   const matched = activeRing ? withinPolygon(properties, activeRing) : null;
@@ -330,26 +408,79 @@ export default function MapClient({
       <div className="relative flex-1">
         <div ref={mapDivRef} className="absolute inset-0" />
 
-        {/* Status legend / toggle, overlaid top-left so the map itself
-            stays maximized. */}
-        <div className="absolute top-3 left-3 z-[1000] bg-white/95 rounded-lg shadow p-3 text-sm space-y-1">
-          <div className="font-semibold mb-1">Research status</div>
-          {(["confirmed", "partial", "unresearched"] as StatusKey[]).map((key) => (
-            <label key={key} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={statusFilter[key]}
-                onChange={(e) =>
-                  setStatusFilter((f) => ({ ...f, [key]: e.target.checked }))
-                }
-              />
-              <span
-                className="inline-block w-3 h-3 rounded-full border border-gray-800"
-                style={{ backgroundColor: STATUS_COLOR[key] }}
-              />
-              {STATUS_LABEL[key]}
-            </label>
-          ))}
+        {/* Layer toggles + research-status filter, overlaid top-left so the
+            map itself stays maximized (11/10/2026: every touched property is
+            reachable by a toggle; current vs. historical by color). */}
+        <div className="absolute top-3 left-14 z-[1000] bg-white/95 rounded-lg shadow p-3 text-xs space-y-1 max-h-[calc(100%-24px)] overflow-y-auto w-64">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold text-sm">Layers</div>
+            <button onClick={() => setLegendOpen((o) => !o)} className="text-gray-400 hover:text-black">
+              {legendOpen ? "Hide" : "Show"}
+            </button>
+          </div>
+          {legendOpen && (
+            <>
+              {LAYERS.map((l) => {
+                const count = properties.filter(
+                  (p) => p.latitude != null && (p.layers ?? ["other"]).includes(l.key)
+                ).length;
+                return (
+                  <label key={l.key} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={layerFilter[l.key]}
+                      onChange={(e) => setLayerFilter((f) => ({ ...f, [l.key]: e.target.checked }))}
+                    />
+                    <span
+                      className="inline-block w-3 h-3 rounded-full border border-gray-800 shrink-0"
+                      style={{
+                        backgroundColor: l.color,
+                        borderStyle: l.historical ? "dashed" : "solid",
+                      }}
+                    />
+                    <span className="flex-1">{l.label}</span>
+                    <span className="text-gray-400">{count}</span>
+                  </label>
+                );
+              })}
+              <div className="flex gap-2 pt-1">
+                <button
+                  className="underline text-gray-500"
+                  onClick={() =>
+                    setLayerFilter(Object.fromEntries(LAYERS.map((l) => [l.key, true])) as Record<LayerKey, boolean>)
+                  }
+                >
+                  All
+                </button>
+                <button
+                  className="underline text-gray-500"
+                  onClick={() =>
+                    setLayerFilter(Object.fromEntries(LAYERS.map((l) => [l.key, l.defaultOn])) as Record<LayerKey, boolean>)
+                  }
+                >
+                  Defaults
+                </button>
+              </div>
+              <div className="font-semibold text-sm pt-2">Owner research</div>
+              {(["confirmed", "partial", "unresearched"] as StatusKey[]).map((key) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={statusFilter[key]}
+                    onChange={(e) => setStatusFilter((f) => ({ ...f, [key]: e.target.checked }))}
+                  />
+                  <span
+                    className="inline-block w-3 h-3 rounded-full border border-gray-800"
+                    style={{ backgroundColor: STATUS_COLOR[key] }}
+                  />
+                  {STATUS_LABEL[key]}
+                </label>
+              ))}
+              <div className="text-gray-400 pt-1">
+                {properties.filter((p) => p.latitude == null).length} properties have no map pin yet (not geocoded).
+              </div>
+            </>
+          )}
         </div>
 
         {loadError && (
