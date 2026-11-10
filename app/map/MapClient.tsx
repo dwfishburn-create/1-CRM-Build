@@ -411,7 +411,8 @@ export default function MapClient({
         {/* Layer toggles + research-status filter, overlaid top-left so the
             map itself stays maximized (11/10/2026: every touched property is
             reachable by a toggle; current vs. historical by color). */}
-        <div className="absolute top-3 left-14 z-[1000] bg-white/95 text-gray-900 rounded-lg shadow p-3 text-xs space-y-1 max-h-[calc(100%-24px)] overflow-y-auto w-64">
+        <div className="absolute top-3 left-14 z-[1000] bg-white/95 text-gray-900 rounded-lg shadow p-3 text-xs space-y-1 max-h-[calc(100%-24px)] overflow-y-auto w-64"
+          style={{ color: "#111827", colorScheme: "light" }}>
           <div className="flex items-center justify-between">
             <div className="font-semibold text-sm">Layers</div>
             <button onClick={() => setLegendOpen((o) => !o)} className="text-gray-400 hover:text-black">
