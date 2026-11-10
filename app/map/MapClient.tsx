@@ -13,6 +13,7 @@ import { LAYERS, LAYER_BY_KEY, layerForDeal, isCurrentProject, type LayerKey } f
 // basemap (big-box POI labels at street zoom). The public pk token lives in
 // the NEXT_PUBLIC_MAPBOX_TOKEN env var (Vercel), not in the repo; without it
 // the map falls back to Esri imagery, per the standard's fallback rule.
+// NEXT_PUBLIC_MAPBOX_TOKEN set in Vercel (Production) 11/10/2026.
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 const MAPBOX_URL = `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`;
 
