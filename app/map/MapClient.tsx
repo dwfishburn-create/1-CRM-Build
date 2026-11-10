@@ -326,7 +326,7 @@ export default function MapClient({
           ? `<div style="margin-top:4px;color:#4b5563">${esc(p.notes.slice(0, 160))}${p.notes.length > 160 ? "…" : ""}</div>`
           : "";
         marker.bindPopup(
-          `<div style="min-width:240px;max-width:320px">
+          `<div style="min-width:240px;max-width:320px;color:#111827">
             <div style="font-weight:600"><a href="/properties/${esc(p.id)}" style="text-decoration:underline">${esc(p.display_code ?? "—")}</a> · ${esc(p.address)}${
               p.suite_number ? ` Ste ${esc(p.suite_number)}` : ""
             }</div>
@@ -411,7 +411,7 @@ export default function MapClient({
         {/* Layer toggles + research-status filter, overlaid top-left so the
             map itself stays maximized (11/10/2026: every touched property is
             reachable by a toggle; current vs. historical by color). */}
-        <div className="absolute top-3 left-14 z-[1000] bg-white/95 rounded-lg shadow p-3 text-xs space-y-1 max-h-[calc(100%-24px)] overflow-y-auto w-64">
+        <div className="absolute top-3 left-14 z-[1000] bg-white/95 text-gray-900 rounded-lg shadow p-3 text-xs space-y-1 max-h-[calc(100%-24px)] overflow-y-auto w-64">
           <div className="flex items-center justify-between">
             <div className="font-semibold text-sm">Layers</div>
             <button onClick={() => setLegendOpen((o) => !o)} className="text-gray-400 hover:text-black">
