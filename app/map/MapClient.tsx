@@ -304,7 +304,8 @@ export default function MapClient({
         const visible = (p.layers ?? ["other"]).filter((k) => layerFilter[k]);
         if (!visible.length) continue;
         const layer = LAYER_BY_KEY[visible[0]];
-        const fill = layer.key === "other" ? STATUS_COLOR[status] ?? layer.color : layer.color;
+        const fill =
+          layer.key === "other" || layer.key === "realnex" ? STATUS_COLOR[status] ?? layer.color : layer.color;
 
         const marker = L.circleMarker([p.latitude, p.longitude], {
           radius: layer.historical ? 6 : 7,

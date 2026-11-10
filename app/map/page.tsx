@@ -21,6 +21,7 @@ export type MapProperty = {
   longitude: number | null;
   parent_property_id?: string | null;
   suite_number?: string | null;
+  source_system?: string | null;
   // Derived server-side for the 11/10/2026 map hub (lib/mapLayers.ts).
   layers?: LayerKey[];
   deals?: DealLink[];
@@ -88,7 +89,7 @@ export default async function MapPage() {
         supabase
           .from("properties")
           .select(
-            "id, display_code, address, city, state, property_type, building_sf, land_acres, research_status, market_status, priority, notes, latitude, longitude, parent_property_id, suite_number"
+            "id, display_code, address, city, state, property_type, building_sf, land_acres, research_status, market_status, priority, notes, latitude, longitude, parent_property_id, suite_number, source_system"
           )
           .order("address", { ascending: true })
           .range(a, b)
@@ -194,6 +195,8 @@ export default async function MapPage() {
     ];
     return {
       ...p,
+      // Cards show ~160 chars; don't ship RealNex's long notes for ~4,000 pins.
+      notes: p.notes ? p.notes.slice(0, 240) : null,
       latitude: p.latitude ?? parent?.latitude ?? null,
       longitude: p.longitude ?? parent?.longitude ?? null,
       deals: d,
@@ -202,7 +205,7 @@ export default async function MapPage() {
         .map((o) => ({ name: o.entity!.name, is_current: o.is_current })),
       comps,
       links: (linksBy.get(p.id) ?? []).map((l) => ({ label: l.label, url: l.url })),
-      layers: layersForProperty({ deals: d, market_status: p.market_status, hasComp: comps.length > 0 }),
+      layers: layersForProperty({ deals: d, market_status: p.market_status, hasComp: comps.length > 0, source_system: p.source_system }),
     };
   });
 
