@@ -9,7 +9,7 @@ import { REALNEX_PROPERTY_BATCH as BATCH_ID } from "@/lib/realnexImport";
 // (matching, inserts, rollback) lives in db/034_realnex_property_import.sql;
 // this file only feeds it the export in chunks and reports the counts.
 
-const CHUNK = 400;
+const CHUNK = 100; // 400 hit Supabase's statement timeout once the tables passed ~1,500 rows (11/10)
 const PILOT_ROWS = 50;
 
 type Counts = Record<string, Record<string, number> | number>;

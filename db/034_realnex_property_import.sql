@@ -71,9 +71,11 @@ begin
   update rn_stage set
     addr_n   = normalize_address(address),
     parcel_n = regexp_replace(lower(coalesce(parcel, '')), '[^a-z0-9]', '', 'g'),
-    owner_n  = case when owner_name is null then null else normalize_entity_name(owner_name) end;
+    owner_n  = case when owner_name is null then null else normalize_entity_name(owner_name) end
+   where key is not null;  -- Supabase's safeupdate guard rejects an UPDATE with no WHERE
   update rn_stage set
-    dedupe_key = addr_n || '|' || lower(coalesce(city, '')) || '|' || lower(coalesce(suite, ''));
+    dedupe_key = addr_n || '|' || lower(coalesce(city, '')) || '|' || lower(coalesce(suite, ''))
+   where key is not null;
 
   -- ---- Properties -------------------------------------------------------
   update rn_stage s set prop_id = p.id, prop_action = 'already_imported'
