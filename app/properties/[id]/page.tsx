@@ -60,6 +60,8 @@ type Property = {
   research_status: string | null;
   priority: string | null;
   notes: string | null;
+  photo_url: string | null;
+  photo_source: string | null;
   parent_property_id: string | null;
   parent: PropLite | PropLite[] | null;
 };
@@ -125,7 +127,7 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
   const { data: property } = await supabase
     .from("properties")
     .select(
-      "id, display_code, address, suite_number, city, state, zip, county, parcel_number, property_type, submarket, building_sf, land_acres, year_built, market_status, research_status, priority, notes, parent_property_id, parent:properties!parent_property_id(id, display_code, address, suite_number)"
+      "id, display_code, address, suite_number, city, state, zip, county, parcel_number, property_type, submarket, building_sf, land_acres, year_built, market_status, research_status, priority, notes, photo_url, photo_source, parent_property_id, parent:properties!parent_property_id(id, display_code, address, suite_number)"
     )
     .eq("id", id)
     .maybeSingle()
@@ -267,6 +269,20 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
           </>
         )}
       </p>
+
+      {property.photo_url && (
+        <figure className="mb-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={property.photo_url}
+            alt={property.address}
+            className="w-full max-w-xl h-64 object-cover rounded-lg border border-gray-200"
+          />
+          {property.photo_source && (
+            <figcaption className="text-xs text-gray-500 mt-1">Photo: {property.photo_source}</figcaption>
+          )}
+        </figure>
+      )}
 
       <div className="grid grid-cols-4 gap-4 mb-6 border border-gray-200 rounded-lg p-4">
         <Field label="Type">{property.property_type ?? "—"}</Field>

@@ -22,6 +22,7 @@ export type MapProperty = {
   parent_property_id?: string | null;
   suite_number?: string | null;
   source_system?: string | null;
+  photo_url?: string | null; // migration 035; null → satellite crop in the card
   // Derived server-side for the 11/10/2026 map hub (lib/mapLayers.ts).
   layers?: LayerKey[];
   deals?: DealLink[];
@@ -89,7 +90,7 @@ export default async function MapPage() {
         supabase
           .from("properties")
           .select(
-            "id, display_code, address, city, state, property_type, building_sf, land_acres, research_status, market_status, priority, notes, latitude, longitude, parent_property_id, suite_number, source_system"
+            "id, display_code, address, city, state, property_type, building_sf, land_acres, research_status, market_status, priority, notes, latitude, longitude, parent_property_id, suite_number, source_system, photo_url"
           )
           .order("address", { ascending: true })
           .range(a, b)
@@ -199,6 +200,7 @@ export default async function MapPage() {
       notes: p.notes ? p.notes.slice(0, 240) : null,
       latitude: p.latitude ?? parent?.latitude ?? null,
       longitude: p.longitude ?? parent?.longitude ?? null,
+      photo_url: p.photo_url ?? parent?.photo_url ?? null,
       deals: d,
       owners: (ownersBy.get(p.id) ?? [])
         .filter((o) => o.entity)

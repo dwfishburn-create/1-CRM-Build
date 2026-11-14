@@ -1767,6 +1767,29 @@ server.registerTool(
       async (args) => toolResult(await agentApiPost("reference-links", args))
     );
 
+    server.registerTool(
+      "set_property_photo",
+      {
+        title: "Set property photo",
+        description:
+          "Set the thumbnail photo shown on a property's map card and property page (migration " +
+          "035). Pass image_base64 (JPEG/PNG/WebP, resize to ~480px wide, max 2MB) to upload it to " +
+          "the property-photos Storage bucket, or url to point at an existing https image, or " +
+          "clear: true to remove it (the map then falls back to a Mapbox satellite crop). source " +
+          "records where it came from: flyer, om, assessor, costar, dan, other. Listing intake: use " +
+          "the flyer/OM cover photo first, the assessor photo second.",
+        inputSchema: {
+          property_id: z.string().min(1),
+          image_base64: z.string().optional(),
+          content_type: z.string().optional(),
+          url: z.string().optional(),
+          source: z.string().optional(),
+          clear: z.boolean().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("property-photos", args))
+    );
+
     // --- saved_polygons (territories) ---
     server.registerTool(
       "list_territories",

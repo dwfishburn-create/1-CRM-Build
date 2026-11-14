@@ -345,8 +345,22 @@ export default function MapClient({
         const notesLine = p.notes
           ? `<div style="margin-top:4px;color:#4b5563">${esc(p.notes.slice(0, 160))}${p.notes.length > 160 ? "…" : ""}</div>`
           : "";
+        // Thumbnail (migration 035): stored photo if we have one, else a Mapbox
+        // satellite crop of the pin. Popup HTML is only parsed when opened, so
+        // images load lazily — nothing is fetched for the thousands of closed pins.
+        const sat =
+          MAPBOX_TOKEN && p.latitude != null && p.longitude != null
+            ? `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/static/pin-s+e11d48(${p.longitude},${p.latitude})/${p.longitude},${p.latitude},17,0/300x150@2x?access_token=${encodeURIComponent(MAPBOX_TOKEN)}`
+            : null;
+        const thumb = p.photo_url || sat;
+        const thumbLine = thumb
+          ? `<a href="/properties/${esc(p.id)}"><img src="${esc(thumb)}" alt="" loading="lazy" style="display:block;width:100%;height:150px;object-fit:cover;border-radius:4px;margin-bottom:6px;background:#e5e7eb"${
+              p.photo_url && sat ? ` onerror="this.onerror=null;this.src='${esc(sat)}'"` : ""
+            }/></a>${p.photo_url ? "" : `<div style="font-size:10px;color:#6b7280;margin:-4px 0 4px">Satellite view — no photo on file</div>`}`
+          : "";
         marker.bindPopup(
-          `<div style="min-width:240px;max-width:320px;color:#111827">
+          `<div style="width:300px;color:#111827">
+            ${thumbLine}
             <div style="font-weight:600"><a href="/properties/${esc(p.id)}" style="text-decoration:underline">${esc(p.display_code ?? "—")}</a> · ${esc(p.address)}${
               p.suite_number ? ` Ste ${esc(p.suite_number)}` : ""
             }</div>
@@ -361,7 +375,8 @@ export default function MapClient({
             ${linkLines ? `<div style="margin-top:4px">${linkLines}</div>` : ""}
             ${priorityLine}
             ${notesLine}
-          </div>`
+          </div>`,
+          { minWidth: 300, maxWidth: 320 }
         );
 
         markerLayerRef.current.addLayer(marker);
