@@ -267,7 +267,8 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
   } catch (e) {
     loadErrors.push(`requirement matches: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const wantMatches = (whoWants?.matches ?? []).filter((m) => m.strong || m.paused || (m.pct ?? 0) >= 50);
+  const wantMatches = (whoWants?.matches ?? []).filter((m) => m.strong || (m.paused && (m.pct ?? 0) >= 50));
+  const nearMisses = (whoWants?.matches ?? []).filter((m) => !m.strong && !m.paused && (m.pct ?? 0) >= 50);
   const strongLive = wantMatches.filter((m) => m.strong && m.lane !== "off_market").length;
 
   const parent = one(property.parent);
@@ -530,7 +531,7 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
           )}
         </p>
         {wantMatches.length === 0 ? (
-          <p className="text-sm text-gray-400">No requirement scores 50% or better.</p>
+          <p className="text-sm text-gray-400">No strong matches.</p>
         ) : (
           <table className="text-sm w-full">
             <tbody>
@@ -555,6 +556,20 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
               ))}
             </tbody>
           </table>
+        )}
+        {nearMisses.length > 0 && (
+          <p className="text-xs text-gray-500 mt-2">
+            Not strong (property type or market missed, or too little known):{" "}
+            {nearMisses.map((m, i) => (
+              <span key={m.requirement_id}>
+                {i > 0 && ", "}
+                <Link href={`/requirements/${m.requirement_id}`} className="underline">
+                  {m.requirement.display_code}
+                </Link>{" "}
+                {m.pct}%
+              </span>
+            ))}
+          </p>
         )}
         {strongLive > 0 && (
           <form action={createMatchTasksAction} className="mt-2">

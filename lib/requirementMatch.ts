@@ -83,7 +83,11 @@ function labelFor(r: Pick<ReqRow, "display_code" | "deal_type" | "property_type"
 
 /** Best result for one requirement across a property's listing rows (or none). */
 function bestFor(req: ReqRow, prop: PropRow, listings: ListingRow[], today: string): MatchResult | null {
-  const candidates = listings.length ? [...listings, null] : [null];
+  // A property with a live listing is scored only as that listing (a sale
+  // listing is not an "off-market fit" for a tenant); no live listing → off-market.
+  const AVAILABLE = ["active", "price_change", "relisted", "under_contract"];
+  const live = listings.filter((l) => AVAILABLE.includes(l.status));
+  const candidates: (ListingRow | null)[] = live.length ? live : [null];
   let best: MatchResult | null = null;
   for (const l of candidates) {
     const r = scoreMatch(req, prop, l, today);
