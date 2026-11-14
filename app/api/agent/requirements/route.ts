@@ -8,6 +8,7 @@ import {
   SIGNAL_FIELDS,
   syncReconfirmTaskSafe,
 } from "@/lib/requirementReconfirm";
+import { CRITERIA_FIELDS, parseCriteriaFields } from "@/lib/requirementCriteria";
 
 // GET /api/agent/requirements?limit=50&status=active — list requirements,
 // most recent first. Optional ?status= filter.
@@ -41,6 +42,10 @@ export async function GET(request: NextRequest) {
 //         budget_max?, target_location?, timeline?, status?, priority?,
 //         details?, source?, confidence?, source_date?, reconfirm_date?,
 //         target_markets? }
+// 11/14/2026 (migration 037): also the matching criteria — sides, asset_classes,
+// acres_min/max, cap_rate_min, tenancy_types, credit_floor, min_term_years,
+// exchange_1031, exchange_identify_by, exchange_close_by
+// (lib/requirementCriteria.ts). Same fields on PATCH.
 // Mirrors app/requirements/actions.ts:createRequirement field-for-field.
 //
 // 10/13/2026 (migration 026): the four expansion-signal fields — confidence
@@ -78,7 +83,7 @@ export async function POST(request: NextRequest) {
 
   let signal: Record<string, unknown>;
   try {
-    signal = parseSignalFields(body);
+    signal = { ...parseSignalFields(body), ...parseCriteriaFields(body) };
   } catch (e) {
     if (e instanceof RetailBrandError) {
       return NextResponse.json({ error: e.message }, { status: 400 });
@@ -192,7 +197,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
-    Object.assign(updatePayload, parseSignalFields(body));
+    Object.assign(updatePayload, parseSignalFields(body), parseCriteriaFields(body));
   } catch (e) {
     if (e instanceof RetailBrandError) {
       return NextResponse.json({ error: e.message }, { status: 400 });
@@ -205,7 +210,7 @@ export async function PATCH(request: NextRequest) {
       {
         error:
           "Provide at least one field to update: " +
-          [...stringFields, ...numericFields, ...SIGNAL_FIELDS].join(", ") + ".",
+          [...stringFields, ...numericFields, ...SIGNAL_FIELDS, ...CRITERIA_FIELDS].join(", ") + ".",
       },
       { status: 400 }
     );

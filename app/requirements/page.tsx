@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { createRequirement } from "./actions";
 import { ActionForm } from "../_components/ActionForm";
 import { SignalFields } from "./SignalFields";
+import { CriteriaFields } from "./CriteriaFields";
 import { choiceLabel, TARGET_MARKETS } from "@/lib/retailBrands";
 import { dueClass } from "@/lib/records";
 
@@ -188,6 +189,8 @@ export default async function RequirementsPage() {
         </datalist>
 
         <SignalFields input="border border-gray-300 rounded px-3 py-2" />
+
+        <CriteriaFields input="border border-gray-300 rounded px-3 py-2" />
 
         <textarea
           name="details"

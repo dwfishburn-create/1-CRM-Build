@@ -10,6 +10,10 @@ import {
 } from "./actions";
 import { ActionForm } from "@/app/_components/ActionForm";
 import { SignalFields } from "../SignalFields";
+import { CriteriaFields } from "../CriteriaFields";
+import { MatchBreakdown, MatchScore } from "@/app/_components/MatchBreakdown";
+import { matchesForRequirement, type PropertyMatch } from "@/lib/requirementMatch";
+import { ASSET_CLASSES, CREDIT_LEVELS, SIDES, TENANCY_TYPES, labelOf } from "@/lib/requirementCriteria";
 import { choiceLabel, TARGET_MARKETS } from "@/lib/retailBrands";
 import { CONFIDENCE, RECONFIRM_CATEGORY } from "@/lib/requirementReconfirm";
 import { dueClass } from "@/lib/records";
@@ -40,6 +44,17 @@ type Requirement = {
   rtd_note: string | null;
   rtd_contact: string | null;
   source_system: string | null;
+  sides: string[] | null;
+  asset_classes: string[] | null;
+  acres_min: number | null;
+  acres_max: number | null;
+  cap_rate_min: number | null;
+  tenancy_types: string[] | null;
+  credit_floor: string | null;
+  min_term_years: number | null;
+  exchange_1031: boolean | null;
+  exchange_identify_by: string | null;
+  exchange_close_by: string | null;
 };
 
 type NamedContact = { id: string; first_name: string | null; last_name: string | null };
@@ -51,15 +66,6 @@ type PartyRow = {
   entity: NamedEntity | NamedEntity[] | null;
 };
 
-type PropertyMatch = {
-  id: string;
-  display_code: string | null;
-  address: string;
-  suite_number: string | null;
-  property_type: string | null;
-  building_sf: number | null;
-  market_status: string | null;
-};
 
 const STATUS_OPTIONS = [
   { value: "active", label: "Active" },
@@ -122,7 +128,7 @@ export default async function RequirementDetailPage(
       supabase
         .from("requirements")
         .select(
-          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets, rtd_shared, rtd_shared_at, rtd_note, rtd_contact, source_system"
+          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets, rtd_shared, rtd_shared_at, rtd_note, rtd_contact, source_system, sides, asset_classes, acres_min, acres_max, cap_rate_min, tenancy_types, credit_floor, min_term_years, exchange_1031, exchange_identify_by, exchange_close_by"
         )
         .eq("id", id)
         .maybeSingle()
@@ -156,21 +162,15 @@ export default async function RequirementDetailPage(
 
   if (!requirement) notFound();
 
-  let matches: PropertyMatch[] = [];
-  if (requirement.property_type) {
-    let query = supabase
-      .from("properties")
-      .select("id, display_code, address, suite_number, property_type, building_sf, market_status")
-      .eq("property_type", requirement.property_type)
-      .in("market_status", ["on_market", "off_market"])
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (requirement.size_min !== null) query = query.gte("building_sf", requirement.size_min);
-    if (requirement.size_max !== null) query = query.lte("building_sf", requirement.size_max);
-
-    const { data } = await query.returns<PropertyMatch[]>();
-    matches = data ?? [];
+  // Phase 4 (11/14/2026): scored matches — lib/requirementMatchCore.ts.
+  const sp = await props.searchParams;
+  const includeOff = sp?.off === "1";
+  let matchData: Awaited<ReturnType<typeof matchesForRequirement>> | null = null;
+  let matchError: string | null = null;
+  try {
+    matchData = await matchesForRequirement(id, { includeOffMarket: includeOff });
+  } catch (e) {
+    matchError = e instanceof Error ? e.message : String(e);
   }
 
   const linkedContactIds = new Set(
@@ -278,6 +278,26 @@ export default async function RequirementDetailPage(
         )}
       </p>
 
+      <p className="text-sm text-gray-600 mb-4">
+        Side: {(requirement.sides ?? []).map((x) => labelOf(SIDES, x)).join(", ") || "—"}
+        {" · "}Classes: {(requirement.asset_classes ?? []).map((x) => labelOf(ASSET_CLASSES, x)).join(", ") || "—"}
+        {(requirement.acres_min !== null || requirement.acres_max !== null) && (
+          <> · Land {rangeLabel(requirement.acres_min, requirement.acres_max)} ac</>
+        )}
+        {requirement.cap_rate_min !== null && <> · Cap {requirement.cap_rate_min}%+</>}
+        {(requirement.tenancy_types ?? []).length > 0 && (
+          <> · Tenancy: {(requirement.tenancy_types ?? []).map((x) => labelOf(TENANCY_TYPES, x)).join(", ")}</>
+        )}
+        {requirement.credit_floor && <> · Credit: {labelOf(CREDIT_LEVELS, requirement.credit_floor)}+</>}
+        {requirement.min_term_years !== null && <> · {requirement.min_term_years}+ yrs term</>}
+        {requirement.exchange_1031 && (
+          <span className="text-amber-700 dark:text-amber-400">
+            {" · "}1031{requirement.exchange_identify_by ? ` — identify by ${requirement.exchange_identify_by}` : ""}
+            {requirement.exchange_close_by ? `, close by ${requirement.exchange_close_by}` : ""}
+          </span>
+        )}
+      </p>
+
       <details className="mb-8">
         <summary className="text-sm text-blue-700 cursor-pointer select-none">Edit requirement</summary>
         <ActionForm action={updateRequirement} className="mt-3 grid grid-cols-4 gap-3 items-end border border-gray-200 rounded-lg p-4">
@@ -339,6 +359,7 @@ export default async function RequirementDetailPage(
             reconfirmDate={requirement.reconfirm_date}
             markets={requirement.target_markets ?? []}
           />
+          <CriteriaFields input="border border-gray-300 rounded px-2 py-1 text-sm" v={requirement} />
           <label className="text-xs text-gray-600 col-span-4">
             Details
             <textarea name="details" rows={3} defaultValue={requirement.details ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-full" />
@@ -453,50 +474,89 @@ export default async function RequirementDetailPage(
 
       <h2 className="text-lg font-semibold mb-3">Possible matches</h2>
       <p className="text-gray-500 mb-4 text-sm">
-        Properties in your database matching this requirement&apos;s property
-        type{requirement.size_min || requirement.size_max ? " and size range" : ""},
-        on-market or off-market. Read-only — this doesn&apos;t link anything.
+        Listings scored against this requirement&apos;s stated criteria — strong = 50%+ of what&apos;s known,
+        with property type and market not missed. ? = the listing doesn&apos;t say (not a miss).
+        {requirement.status === "on_hold" && " This requirement is on hold, so matches show as paused."}
+        {!(requirement.sides ?? []).length || !(requirement.asset_classes ?? []).length || !(requirement.target_markets ?? []).length
+          ? " Set side, property classes and target markets above for sharper matches."
+          : ""}
       </p>
-
-      {!requirement.property_type ? (
-        <p className="text-sm text-gray-400 mb-10">
-          Set a property type on this requirement to see possible matches.
-        </p>
-      ) : (
-        <table className="w-full text-sm border-collapse mb-10">
-          <thead>
-            <tr className="text-left border-b border-gray-300">
-              <th className="py-2 pr-3">Property</th>
-              <th className="py-2 pr-3">Type</th>
-              <th className="py-2 pr-3">Size (SF)</th>
-              <th className="py-2 pr-3">Market Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {matches.map((m) => (
-              <tr key={m.id} className="border-b border-gray-100">
-                <td className="py-2 pr-3">
-                  <Link href={`/properties/${m.id}`} className="text-blue-600 underline">
-                    {m.display_code ? `${m.display_code} — ` : ""}
-                    {m.address}
-                    {m.suite_number ? `, Suite ${m.suite_number}` : ""}
-                  </Link>
-                </td>
-                <td className="py-2 pr-3 text-gray-500">{m.property_type ?? "—"}</td>
-                <td className="py-2 pr-3 text-gray-500">{formatNumber(m.building_sf)}</td>
-                <td className="py-2 pr-3">{marketStatusLabel(m.market_status)}</td>
-              </tr>
-            ))}
-            {matches.length === 0 && (
-              <tr>
-                <td colSpan={4} className="py-4 text-gray-400">
-                  No matching properties yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      {matchError && <p className="text-sm text-red-600 mb-4">Couldn&apos;t score matches: {matchError}</p>}
+      {matchData && (
+        <>
+          <MatchTable rows={matchData.listed} empty="No listed properties match yet." />
+          <h3 className="text-sm font-semibold mt-6 mb-2">Off-market properties that fit</h3>
+          {includeOff ? (
+            <>
+              <p className="text-xs text-gray-500 mb-2">
+                Strong fits among every property in the CRM (incl. the RealNex set) — owner-conversation leads.
+                {matchData.off_market_total > matchData.off_market.length &&
+                  ` Showing the top ${matchData.off_market.length} of ${matchData.off_market_total}.`}
+              </p>
+              <MatchTable rows={matchData.off_market} empty="No strong off-market fits." />
+            </>
+          ) : (
+            <Link href={`/requirements/${requirement.id}?off=1`} className="text-sm text-blue-600 underline">
+              Score off-market properties too (slower)
+            </Link>
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+function MatchTable({ rows, empty }: { rows: PropertyMatch[]; empty: string }) {
+  return (
+    <table className="w-full text-sm border-collapse mb-6">
+      <thead>
+        <tr className="text-left border-b border-gray-300">
+          <th className="py-2 pr-3">Score</th>
+          <th className="py-2 pr-3">Property</th>
+          <th className="py-2 pr-3">Listing</th>
+          <th className="py-2 pr-3">Why</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((m) => (
+          <tr key={m.property.id} className="border-b border-gray-100 align-top">
+            <td className="py-2 pr-3">
+              <MatchScore pct={m.pct} strong={m.strong} paused={m.paused} />
+            </td>
+            <td className="py-2 pr-3">
+              <Link href={`/properties/${m.property.id}`} className="text-blue-600 underline">
+                {m.property.display_code ? `${m.property.display_code} — ` : ""}
+                {m.property.address}
+                {m.property.suite_number ? `, Suite ${m.property.suite_number}` : ""}
+              </Link>
+              <div className="text-xs text-gray-500">
+                {[m.property.city, m.property.property_type].filter(Boolean).join(" · ")}
+              </div>
+            </td>
+            <td className="py-2 pr-3 text-xs text-gray-600">
+              {m.listing ? (
+                <>
+                  {m.listing.listing_type}
+                  {m.listing.asking_price ? ` · $${formatNumber(m.listing.asking_price)}` : ""}
+                  {m.listing.asking_rate ? ` · $${m.listing.asking_rate}/SF ${m.listing.rate_basis ?? ""}` : ""}
+                  {m.listing.cap_rate ? ` · ${m.listing.cap_rate}% cap` : ""}
+                  {m.listing.is_dan_listing ? " · your listing" : ""}
+                </>
+              ) : (
+                marketStatusLabel(m.property.market_status)
+              )}
+            </td>
+            <td className="py-2 pr-3">
+              <MatchBreakdown met={m.met} missed={m.missed} unknown={m.unknown} />
+            </td>
+          </tr>
+        ))}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={4} className="py-4 text-gray-400">{empty}</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }

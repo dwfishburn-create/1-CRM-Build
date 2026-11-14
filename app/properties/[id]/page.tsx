@@ -31,6 +31,9 @@ import {
 import { LogActivityForm } from "@/app/_components/LogActivityForm";
 import { contactOptions } from "@/lib/contactOptions";
 import { LicensePanel } from "@/app/liquor-licenses/LicensePanel";
+import { MatchBreakdown, MatchScore } from "@/app/_components/MatchBreakdown";
+import { matchesForProperty } from "@/lib/requirementMatch";
+import { createMatchTasksAction } from "./matchActions";
 
 export const dynamic = "force-dynamic";
 
@@ -255,6 +258,17 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
     .order("created_at", { ascending: false })
     .returns<PriceObs[]>();
   if (priceError) loadErrors.push(`price history: ${priceError.message}`);
+
+  // Who wants this? (Phase 4, 11/14/2026) — every active / on-hold
+  // requirement scored against this property and its latest listing.
+  let whoWants: Awaited<ReturnType<typeof matchesForProperty>> | null = null;
+  try {
+    whoWants = await matchesForProperty(id);
+  } catch (e) {
+    loadErrors.push(`requirement matches: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const wantMatches = (whoWants?.matches ?? []).filter((m) => m.strong || m.paused || (m.pct ?? 0) >= 50);
+  const strongLive = wantMatches.filter((m) => m.strong && m.lane !== "off_market").length;
 
   const parent = one(property.parent);
 
@@ -505,6 +519,53 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
           </ul>
         </Section>
       )}
+
+      <Section title="Who wants this?" count={wantMatches.length}>
+        <p className="text-xs text-gray-500 mb-2">
+          Active requirements scored against this property
+          {(whoWants?.listings ?? []).length ? " and its listing" : " (no listing on file — off-market fits are owner-conversation angles)"}.
+          Strong = 50%+ of the known criteria with property type and market not missed; ? = not stated, not a miss.
+          {(whoWants?.owners ?? []).some((o) => o.do_not_solicit) && (
+            <span className="text-red-700"> Owner is do-not-solicit — no owner outreach.</span>
+          )}
+        </p>
+        {wantMatches.length === 0 ? (
+          <p className="text-sm text-gray-400">No requirement scores 50% or better.</p>
+        ) : (
+          <table className="text-sm w-full">
+            <tbody>
+              {wantMatches.map((m) => (
+                <tr key={m.requirement_id} className="border-t border-gray-100 align-top">
+                  <td className="pr-3 py-2">
+                    <MatchScore pct={m.pct} strong={m.strong} paused={m.paused} />
+                  </td>
+                  <td className="pr-3 py-2">
+                    <Link href={`/requirements/${m.requirement_id}`} className="text-blue-600 underline">
+                      {m.label}
+                    </Link>
+                    <div className="text-xs text-gray-500">
+                      {m.lane === "buyer" ? "Buyer lane" : m.lane === "tenant" ? "Tenant lane" : "Off-market fit"}
+                      {m.exchange_note ? ` · ${m.exchange_note}` : ""}
+                    </div>
+                  </td>
+                  <td className="py-2">
+                    <MatchBreakdown met={m.met} missed={m.missed} unknown={m.unknown} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {strongLive > 0 && (
+          <form action={createMatchTasksAction} className="mt-2">
+            <input type="hidden" name="property_id" value={id} />
+            <button type="submit" className="text-xs bg-blue-600 text-white rounded px-3 py-1">
+              Create Your Move tasks for {strongLive} strong match{strongLive === 1 ? "" : "es"}
+            </button>
+            <span className="text-xs text-gray-500 ml-2">Skips any already tasked.</span>
+          </form>
+        )}
+      </Section>
 
       {(prices ?? []).length > 0 && (
         <Section title="Listing price history" count={prices!.length}>
