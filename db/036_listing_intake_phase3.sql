@@ -39,6 +39,10 @@ create table if not exists listing_price_history (
   created_at timestamptz not null default now()
 );
 
+-- RLS on, no policies: the app reads/writes server-side with the secret key
+-- (same as every other table; enabled via the SQL editor's prompt 11/14).
+alter table listing_price_history enable row level security;
+
 create index if not exists idx_lph_property on listing_price_history(property_id, observed_on desc);
 create index if not exists idx_lph_observed on listing_price_history(observed_on desc);
 
