@@ -303,11 +303,23 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  // Migration 036 (11/14/2026): structured do-not-solicit flag.
+  if ("do_not_solicit" in body) {
+    const v = body.do_not_solicit;
+    if (typeof v !== "boolean") {
+      return NextResponse.json({ error: "do_not_solicit must be true or false." }, { status: 400 });
+    }
+    updatePayload.do_not_solicit = v;
+  }
+  if ("represented_by" in body) {
+    updatePayload.represented_by = String(body.represented_by ?? "").trim() || null;
+  }
+
   if (Object.keys(updatePayload).length === 0) {
     return NextResponse.json(
       {
         error:
-          "Provide at least one field to update: " + editableFields.join(", ") + ".",
+          "Provide at least one field to update: " + editableFields.join(", ") + ", do_not_solicit, represented_by.",
       },
       { status: 400 }
     );
