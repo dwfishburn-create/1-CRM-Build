@@ -23,12 +23,25 @@ export type MapProperty = {
   suite_number?: string | null;
   source_system?: string | null;
   photo_url?: string | null; // migration 035; null → satellite crop in the card
+  price_line?: string | null; // migration 036: latest asking + change since first listed
   // Derived server-side for the 11/10/2026 map hub (lib/mapLayers.ts).
   layers?: LayerKey[];
   deals?: DealLink[];
   owners?: { name: string; is_current: boolean }[];
   comps?: { kind: "sale" | "lease"; date: string | null; summary: string }[];
   links?: { label: string; url: string | null }[];
+};
+
+type PriceSummaryRow = {
+  property_id: string;
+  listing_type: string;
+  status: string;
+  asking_price: number | null;
+  asking_rate: number | null;
+  rate_basis: string | null;
+  first_seen_on: string;
+  days_observed: number;
+  pct_change_since_first: number | null;
 };
 
 export type SavedPolygonRow = {
@@ -84,6 +97,29 @@ function money(n: number | null | undefined) {
 }
 
 export default async function MapPage() {
+  // Listing price summary (migration 036) — small table, one row per listing.
+  const { data: priceSummary } = await supabase
+    .from("listing_price_summary")
+    .select("property_id, listing_type, status, asking_price, asking_rate, rate_basis, first_seen_on, days_observed, pct_change_since_first")
+    .returns<PriceSummaryRow[]>();
+  const priceBy = new Map<string, string>();
+  for (const r of priceSummary ?? []) {
+    const ask =
+      r.asking_price != null
+        ? money(r.asking_price)
+        : r.asking_rate != null
+          ? `$${r.asking_rate}/SF${r.rate_basis ? ` ${r.rate_basis}` : ""}`
+          : "price n/a";
+    const kind = r.listing_type === "sale" || r.listing_type === "land" ? "For sale" : r.listing_type === "sublease" ? "Sublease" : "For lease";
+    const chg =
+      r.pct_change_since_first != null && r.pct_change_since_first !== 0
+        ? ` · ${r.pct_change_since_first > 0 ? "+" : ""}${r.pct_change_since_first}% since ${r.first_seen_on}`
+        : "";
+    const st = ["sold", "leased", "under_contract", "withdrawn", "expired"].includes(r.status) ? ` · ${r.status.replace("_", " ")}` : "";
+    const line = `${kind} ${ask}${chg}${st}`;
+    priceBy.set(r.property_id, priceBy.has(r.property_id) ? `${priceBy.get(r.property_id)} | ${line}` : line);
+  }
+
   const [props, deals, owners, saleComps, leaseComps, links, { data: savedPolygons }, { data: projects }] =
     await Promise.all([
       fetchAll<MapProperty>((a, b) =>
@@ -201,6 +237,7 @@ export default async function MapPage() {
       latitude: p.latitude ?? parent?.latitude ?? null,
       longitude: p.longitude ?? parent?.longitude ?? null,
       photo_url: p.photo_url ?? parent?.photo_url ?? null,
+      price_line: priceBy.get(p.id) ?? null,
       deals: d,
       owners: (ownersBy.get(p.id) ?? [])
         .filter((o) => o.entity)

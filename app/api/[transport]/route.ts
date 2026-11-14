@@ -554,7 +554,10 @@ server.registerTool(
           "fields are left as-is. Pass a field as an empty string to clear it. At least one field " +
           "besides id is required. Added 9/2/2026 to close the gap where an existing entity's " +
           "name/etc. could only be set at creation time — e.g. a spelling correction like Astlali " +
-          "Concina->Cocina previously needed a raw SQL UPDATE. See CRM_Requirements_and_Decisions_Log.md.",
+          "Concina->Cocina previously needed a raw SQL UPDATE. See CRM_Requirements_and_Decisions_Log.md. " +
+          "do_not_solicit (true/false) + represented_by (migration 036, 11/14/2026): set do_not_solicit " +
+          "when an owner is represented by a CBRE colleague (or Dan says hands off) — listing intake and " +
+          "matching then create NO owner-outreach tasks for them.",
         inputSchema: {
           id: z.string().min(1),
           name: z.string().optional(),
@@ -563,6 +566,8 @@ server.registerTool(
           website: z.string().optional(),
           primary_contact_id: z.string().optional(),
           notes: z.string().optional(),
+          do_not_solicit: z.boolean().optional(),
+          represented_by: z.string().optional(),
         },
       },
       async (args) => toolResult(await agentApiPatch("entities", args))
@@ -1788,6 +1793,93 @@ server.registerTool(
         },
       },
       async (args) => toolResult(await agentApiPost("property-photos", args))
+    );
+
+    // --- listing intake, Phase 3 (migration 036) ---
+    server.registerTool(
+      "record_listing_price",
+      {
+        title: "Record listing price observation",
+        description:
+          "Record one observation of a listing's terms in listing_price_history — every time intake " +
+          "sees a listing (new flyer, CoStar report, price change, under contract, sold, withdrawn). " +
+          "listing_type: sale | lease | sublease | land (default sale). status: active | price_change | " +
+          "under_contract | sold | leased | withdrawn | expired | relisted (default active). Sale/land: " +
+          "asking_price ($ total). Lease/sublease: asking_rate ($/SF/yr) + rate_basis (NNN, MG, Gross). " +
+          "observed_on YYYY-MM-DD (default today) — use the flyer's date when known. listing_firm " +
+          "containing CBRE sets is_cbre automatically; is_dan_listing for Dan's own. Also moves the " +
+          "property's market_status to match unless update_market_status is false. Returns the " +
+          "summary (first-seen date, prior ask, % change since first listed) and current_owners with " +
+          "do_not_solicit flags — if any owner is do_not_solicit, or is_cbre is true on a listing that " +
+          "is not Dan's, create NO owner-outreach task.",
+        inputSchema: {
+          property_id: z.string().min(1),
+          listing_type: z.enum(["sale", "lease", "sublease", "land"]).optional(),
+          status: z
+            .enum(["active", "price_change", "under_contract", "sold", "leased", "withdrawn", "expired", "relisted"])
+            .optional(),
+          asking_price: z.number().optional(),
+          asking_rate: z.number().optional(),
+          rate_basis: z.string().optional(),
+          sf: z.number().optional(),
+          listing_broker: z.string().optional(),
+          listing_firm: z.string().optional(),
+          is_cbre: z.boolean().optional(),
+          is_dan_listing: z.boolean().optional(),
+          observed_on: z.string().optional(),
+          source: z.string().optional(),
+          source_ref: z.string().optional(),
+          notes: z.string().optional(),
+          source_batch_id: z.string().optional(),
+          update_market_status: z.boolean().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("listing-prices", args))
+    );
+    server.registerTool(
+      "list_listing_prices",
+      {
+        title: "List listing price history",
+        description:
+          "With property_id: that property's full price history (oldest first) plus a summary per " +
+          "listing type (first seen, days observed, prior ask, % change since first listed). Without: " +
+          "the most recently observed listings across the CRM; changed_since (YYYY-MM-DD) limits to " +
+          "listings observed on/after that date — use it for 'what changed this week'.",
+        inputSchema: {
+          ...limitArg,
+          property_id: z.string().optional(),
+          changed_since: z.string().optional(),
+        },
+      },
+      async ({ limit, property_id, changed_since }) =>
+        toolResult(
+          await agentApiGet("listing-prices", { limit: limit?.toString(), property_id, changed_since })
+        )
+    );
+    server.registerTool(
+      "list_listing_intake_backlog",
+      {
+        title: "List listing intake backlog",
+        description:
+          "On-market properties and Dan's active listings (L/SL/CL/CS projects) still missing price " +
+          "history, an owner link, a photo or coordinates — the work list for reprocessing existing " +
+          "listings. Dan's listings first, then oldest first. Flags per row: needs_price, needs_owner, " +
+          "needs_photo, needs_geocode. Filter with needs (owner | price | photo | geocode) or " +
+          "dan_only. Returns total so you can report how much is left.",
+        inputSchema: {
+          ...limitArg,
+          needs: z.enum(["owner", "price", "photo", "geocode"]).optional(),
+          dan_only: z.boolean().optional(),
+        },
+      },
+      async ({ limit, needs, dan_only }) =>
+        toolResult(
+          await agentApiGet("listing-intake-backlog", {
+            limit: limit?.toString(),
+            needs,
+            dan_only: dan_only ? "true" : undefined,
+          })
+        )
     );
 
     // --- saved_polygons (territories) ---

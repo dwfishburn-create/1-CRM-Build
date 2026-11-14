@@ -368,6 +368,7 @@ export default function MapClient({
             <div>${esc(p.property_type ?? "—")}${p.building_sf ? ` · ${p.building_sf.toLocaleString()} SF` : ""}${
               p.land_acres ? ` · ${p.land_acres} ac` : ""
             }</div>
+            ${p.price_line ? `<div style="font-weight:600;color:#b45309">${esc(p.price_line)}</div>` : ""}
             <div>Research: ${esc(STATUS_LABEL[status] ?? status)} · Market: ${esc(p.market_status ?? "—")}</div>
             ${ownerLine}
             ${dealLines ? `<div style="margin-top:4px"><b>Deals</b>${dealLines}</div>` : ""}

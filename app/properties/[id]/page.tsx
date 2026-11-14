@@ -118,6 +118,19 @@ type SignalRow = {
 type SaleComp = { id: string; sale_date: string | null; sale_price: number | null; price_per_sf: number | null; cap_rate: number | null; buyer: string | null; seller: string | null };
 type LeaseComp = { id: string; lease_date: string | null; tenant: string | null; sf: number | null; final_rent: number | null; lease_term_months: number | null };
 type Expense = { id: string; year: number; category: string; amount: number };
+type PriceObs = {
+  id: string;
+  listing_type: string;
+  status: string;
+  asking_price: number | null;
+  asking_rate: number | null;
+  rate_basis: string | null;
+  sf: number | null;
+  listing_broker: string | null;
+  listing_firm: string | null;
+  observed_on: string;
+  source: string | null;
+};
 type RefLink = { id: string; label: string; url: string | null; link_type: string | null; notes: string | null };
 
 export default async function PropertyDetailPage(props: PageProps<"/properties/[id]">) {
@@ -232,6 +245,16 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
     ? await supabase.from("leases").select(LEASE_SELECT).in("space_id", spaceIds).returns<LeaseLite[]>()
     : { data: [] as LeaseLite[], error: null };
   if (leaseError) loadErrors.push(`leases: ${leaseError.message}`);
+
+  // Listing price history (migration 036).
+  const { data: prices, error: priceError } = await supabase
+    .from("listing_price_history")
+    .select("id, listing_type, status, asking_price, asking_rate, rate_basis, sf, listing_broker, listing_firm, observed_on, source")
+    .eq("property_id", id)
+    .order("observed_on", { ascending: false })
+    .order("created_at", { ascending: false })
+    .returns<PriceObs[]>();
+  if (priceError) loadErrors.push(`price history: ${priceError.message}`);
 
   const parent = one(property.parent);
 
@@ -480,6 +503,44 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {(prices ?? []).length > 0 && (
+        <Section title="Listing price history" count={prices!.length}>
+          <table className="text-sm w-full">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th className="pr-3 font-normal">Date</th>
+                <th className="pr-3 font-normal">Type</th>
+                <th className="pr-3 font-normal">Status</th>
+                <th className="pr-3 font-normal">Asking</th>
+                <th className="pr-3 font-normal">Broker</th>
+                <th className="font-normal">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prices!.map((r) => (
+                <tr key={r.id} className="border-t border-gray-100">
+                  <td className="pr-3">{r.observed_on}</td>
+                  <td className="pr-3">{r.listing_type}</td>
+                  <td className="pr-3">{r.status.replace("_", " ")}</td>
+                  <td className="pr-3">
+                    {r.asking_price != null
+                      ? `$${Math.round(r.asking_price).toLocaleString()}`
+                      : r.asking_rate != null
+                        ? `$${r.asking_rate}/SF${r.rate_basis ? ` ${r.rate_basis}` : ""}`
+                        : "—"}
+                    {r.asking_price != null && r.sf ? (
+                      <span className="text-gray-500"> (${Math.round(r.asking_price / r.sf).toLocaleString()}/SF)</span>
+                    ) : null}
+                  </td>
+                  <td className="pr-3">{[r.listing_broker, r.listing_firm].filter(Boolean).join(", ") || "—"}</td>
+                  <td>{r.source ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Section>
       )}
 
