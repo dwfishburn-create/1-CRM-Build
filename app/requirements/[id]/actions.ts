@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { signalFieldsFromForm, syncReconfirmTaskSafe } from "@/lib/requirementReconfirm";
+import { criteriaFromForm } from "@/lib/requirementCriteria";
 import type { FormResult } from "@/app/_components/ActionForm";
 
 function revalidateRequirement(id: string) {
@@ -47,6 +48,7 @@ export async function updateRequirement(_prev: FormResult, fd: FormData): Promis
       budget_min: num("budget_min"),
       budget_max: num("budget_max"),
       ...signalFieldsFromForm(fd),
+      ...criteriaFromForm(fd),
       updated_at: new Date().toISOString(),
     };
 

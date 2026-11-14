@@ -14,6 +14,8 @@ import { supabase } from "@/lib/supabase";
 //           status?: active|price_change|under_contract|sold|leased|withdrawn|expired|relisted,
 //           asking_price?, asking_rate?, rate_basis?, sf?, listing_broker?, listing_firm?,
 //           is_cbre?, is_dan_listing?, observed_on?, source?, source_ref?, notes?,
+//           cap_rate? (%), noi?, tenancy_type?, tenant_credit?, term_remaining_years?,
+//           land_acres?  (investment facts, migration 037),
 //           update_market_status? (default true) }
 //   Also moves properties.market_status to match (on_market / sold / leased /
 //   off_market) unless update_market_status is false, and returns the
@@ -21,6 +23,8 @@ import { supabase } from "@/lib/supabase";
 //   knows whether owner outreach is allowed.
 
 const LISTING_TYPES = ["sale", "lease", "sublease", "land"];
+const TENANCY = ["single_tenant_nnn", "multi_tenant", "vacant", "value_add", "owner_user", "ground_lease"];
+const CREDIT = ["investment_grade", "national", "regional", "local"];
 const STATUSES = ["active", "price_change", "under_contract", "sold", "leased", "withdrawn", "expired", "relisted"];
 
 function marketStatusFor(status: string): string {
@@ -91,7 +95,13 @@ export async function POST(request: NextRequest) {
   const asking_price = num(body.asking_price);
   const asking_rate = num(body.asking_rate);
   const sf = num(body.sf);
-  for (const [k, v] of Object.entries({ asking_price, asking_rate, sf })) {
+  // 11/14/2026 (migration 037): investment facts from the flyer/OM.
+  let cap_rate = num(body.cap_rate);
+  if (cap_rate !== null && cap_rate > 0 && cap_rate < 1) cap_rate = Math.round(cap_rate * 10000) / 100; // 0.07 → 7
+  const noi = num(body.noi);
+  const term_remaining_years = num(body.term_remaining_years);
+  const land_acres = num(body.land_acres);
+  for (const [k, v] of Object.entries({ asking_price, asking_rate, sf, cap_rate, noi, term_remaining_years, land_acres })) {
     if (Number.isNaN(v)) return NextResponse.json({ error: `${k} must be a number.` }, { status: 400 });
   }
 
@@ -101,6 +111,14 @@ export async function POST(request: NextRequest) {
   }
 
   const text = (k: string) => String(body[k] ?? "").trim() || null;
+  const tenancy_type = text("tenancy_type")?.toLowerCase() ?? null;
+  if (tenancy_type && !TENANCY.includes(tenancy_type)) {
+    return NextResponse.json({ error: `tenancy_type must be one of ${TENANCY.join(", ")}.` }, { status: 400 });
+  }
+  const tenant_credit = text("tenant_credit")?.toLowerCase() ?? null;
+  if (tenant_credit && !CREDIT.includes(tenant_credit)) {
+    return NextResponse.json({ error: `tenant_credit must be one of ${CREDIT.join(", ")}.` }, { status: 400 });
+  }
   const row = {
     property_id,
     listing_type,
@@ -109,6 +127,12 @@ export async function POST(request: NextRequest) {
     asking_rate,
     rate_basis: text("rate_basis"),
     sf,
+    cap_rate,
+    noi,
+    tenancy_type,
+    tenant_credit,
+    term_remaining_years,
+    land_acres,
     listing_broker: text("listing_broker"),
     listing_firm: text("listing_firm"),
     is_cbre: body.is_cbre === true || /cbre/i.test(String(body.listing_firm ?? "")),

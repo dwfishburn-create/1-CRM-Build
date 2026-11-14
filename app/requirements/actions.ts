@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { supabase } from "@/lib/supabase";
 import { nextDisplayCode } from "@/lib/displayCode";
 import { signalFieldsFromForm, syncReconfirmTaskSafe } from "@/lib/requirementReconfirm";
+import { criteriaFromForm } from "@/lib/requirementCriteria";
 import type { FormResult } from "../_components/ActionForm";
 
 // A Requirement is a standing, informal capture of what someone told Dan
@@ -42,7 +43,7 @@ async function createRequirementInner(formData: FormData): Promise<FormResult> {
   const priority = String(formData.get("priority") || "").trim() || "medium";
   const details = String(formData.get("details") || "").trim() || null;
   const source = String(formData.get("source") || "").trim() || null;
-  const signal = signalFieldsFromForm(formData);
+  const signal = { ...signalFieldsFromForm(formData), ...criteriaFromForm(formData) };
 
   const display_code = await nextDisplayCode("requirements", "REQ");
 

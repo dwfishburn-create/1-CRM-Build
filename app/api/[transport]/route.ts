@@ -206,6 +206,35 @@ const requirementSignalArgs = {
   reconfirm_date: z.string().optional(),
   target_markets: z.array(z.enum(TARGET_MARKET_VALUES)).optional(),
 };
+const requirementCriteriaArgs = {
+  sides: z.array(z.enum(["tenant", "buyer", "investor", "developer"])).optional(),
+  asset_classes: z
+    .array(z.enum(["retail", "land", "industrial", "flex", "office", "multifamily", "hospitality", "mixed_use", "special_purpose"]))
+    .optional(),
+  acres_min: z.number().nullable().optional(),
+  acres_max: z.number().nullable().optional(),
+  cap_rate_min: z.number().nullable().optional(),
+  tenancy_types: z
+    .array(z.enum(["single_tenant_nnn", "multi_tenant", "vacant", "value_add", "owner_user", "ground_lease"]))
+    .optional(),
+  credit_floor: z.enum(["investment_grade", "national", "regional", "local"]).nullable().optional(),
+  min_term_years: z.number().nullable().optional(),
+  exchange_1031: z.boolean().optional(),
+  exchange_identify_by: z.string().optional(),
+  exchange_close_by: z.string().optional(),
+};
+const REQUIREMENT_CRITERIA_TEXT =
+  "MATCHING CRITERIA (migration 037, 11/14/2026) — what find_requirement_matches scores against: " +
+  "sides (tenant | buyer = owner-user | investor | developer; decides whether sale/land or " +
+  "lease/sublease listings are matched), asset_classes (retail, land, industrial, flex, office, " +
+  "multifamily, hospitality, mixed_use, special_purpose — property_type stays free-text " +
+  "description), target_markets, size_min/size_max (building SF), acres_min/acres_max (land), " +
+  "budget_min/budget_max (price for buyers; annual rent $ for tenants), cap_rate_min (percent, 6.5 " +
+  "= 6.5%), tenancy_types, credit_floor (investment_grade > national > regional > local), " +
+  "min_term_years (remaining lease term), exchange_1031 + exchange_identify_by / " +
+  "exchange_close_by (YYYY-MM-DD). Set only what the party actually said — a blank criterion " +
+  "is not scored. Always set sides, asset_classes and target_markets on a new requirement.";
+
 const REQUIREMENT_SIGNAL_TEXT =
   "Expansion-signal fields (10/13/2026): confidence — exactly one of high, medium, low — how " +
   "firm the signal is (a brand's published requirement is high; \"heard they might look at " +
@@ -1811,9 +1840,21 @@ server.registerTool(
           "property's market_status to match unless update_market_status is false. Returns the " +
           "summary (first-seen date, prior ask, % change since first listed) and current_owners with " +
           "do_not_solicit flags — if any owner is do_not_solicit, or is_cbre is true on a listing that " +
-          "is not Dan's, create NO owner-outreach task.",
+          "is not Dan's, create NO owner-outreach task. Investment facts from the flyer/OM (037): " +
+          "cap_rate (percent), noi ($/yr), tenancy_type (single_tenant_nnn | multi_tenant | vacant | " +
+          "value_add | owner_user | ground_lease), tenant_credit (investment_grade | national | " +
+          "regional | local), term_remaining_years, land_acres — record whatever the flyer states; " +
+          "buyer matching scores against them. After recording, call find_requirement_matches.",
         inputSchema: {
           property_id: z.string().min(1),
+          cap_rate: z.number().optional(),
+          noi: z.number().optional(),
+          tenancy_type: z
+            .enum(["single_tenant_nnn", "multi_tenant", "vacant", "value_add", "owner_user", "ground_lease"])
+            .optional(),
+          tenant_credit: z.enum(["investment_grade", "national", "regional", "local"]).optional(),
+          term_remaining_years: z.number().optional(),
+          land_acres: z.number().optional(),
           listing_type: z.enum(["sale", "lease", "sublease", "land"]).optional(),
           status: z
             .enum(["active", "price_change", "under_contract", "sold", "leased", "withdrawn", "expired", "relisted"])
@@ -1855,6 +1896,45 @@ server.registerTool(
         toolResult(
           await agentApiGet("listing-prices", { limit: limit?.toString(), property_id, changed_since })
         )
+    );
+    server.registerTool(
+      "find_requirement_matches",
+      {
+        title: "Find requirement matches (Who wants this?)",
+        description:
+          "Phase 4 buyer/tenant matching (migration 037). With property_id: 'Who wants this?' — every " +
+          "active and on-hold requirement scored against the property and its latest listing: sale/" +
+          "land listings vs. buyer/investor/developer requirements (lane buyer), lease/sublease vs. " +
+          "tenant requirements (lane tenant), no live listing = off_market (an owner-conversation " +
+          "angle). Score = met / (met + missed) of the requirement's stated criteria; criteria the " +
+          "listing doesn't state are listed as unknown, not misses. strong = 50%+ with at least 2 " +
+          "criteria known and neither property type nor market missed; on-hold requirements come " +
+          "back paused, never strong. Set create_tasks: true (property_id only) to create one Your " +
+          "Move task (category listing_match) per strong match on a live listing — de-duplicated, so " +
+          "safe to re-run; dry_run previews. With requirement_id instead: the listed properties " +
+          "scored against that requirement; include_off_market adds the top 25 strong off-market " +
+          "fits (slower — scores every property). Report met/missed/unknown in Claude's words; " +
+          "never message a party from here.",
+        inputSchema: {
+          property_id: z.string().optional(),
+          requirement_id: z.string().optional(),
+          include_off_market: z.boolean().optional(),
+          create_tasks: z.boolean().optional(),
+          dry_run: z.boolean().optional(),
+        },
+      },
+      async ({ property_id, requirement_id, include_off_market, create_tasks, dry_run }) => {
+        if (create_tasks && property_id) {
+          return toolResult(await agentApiPost("requirement-matches", { property_id, dry_run }));
+        }
+        return toolResult(
+          await agentApiGet("requirement-matches", {
+            property_id,
+            requirement_id,
+            include_off_market: include_off_market ? "true" : undefined,
+          })
+        );
+      }
     );
     server.registerTool(
       "list_listing_intake_backlog",
@@ -1943,9 +2023,10 @@ server.registerTool(
           "This only creates the requirement itself — call link_requirement_party separately to " +
           "attach the contact(s)/entity(ies) it belongs to (for a retail brand's expansion plan, " +
           "link the brand's entity so the re-confirm task and the Tenant Directory pick it up). " +
-          REQUIREMENT_SIGNAL_TEXT,
+          REQUIREMENT_SIGNAL_TEXT + " " + REQUIREMENT_CRITERIA_TEXT,
         inputSchema: {
           ...requirementSignalArgs,
+          ...requirementCriteriaArgs,
           deal_type: z.string().optional(),
           property_type: z.string().optional(),
           size_min: z.number().optional(),
@@ -2011,9 +2092,10 @@ server.registerTool(
           "REQ-0001, REQ-0002) had no supported way to be edited after creation — see " +
           "CRM_Requirements_and_Decisions_Log.md. Pass source_date / reconfirm_date as \"\" or " +
           "confidence as null to clear; target_markets: [] clears the markets. " +
-          REQUIREMENT_SIGNAL_TEXT,
+          REQUIREMENT_SIGNAL_TEXT + " " + REQUIREMENT_CRITERIA_TEXT,
         inputSchema: {
           ...requirementSignalArgs,
+          ...requirementCriteriaArgs,
           id: z.string().min(1),
           deal_type: z.string().optional(),
           property_type: z.string().optional(),
@@ -2814,7 +2896,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.18.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.19.0" },
     verboseLogs: true,
   }
 );
