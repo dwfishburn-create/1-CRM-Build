@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createMatchTasks, matchesForProperty, matchesForRequirement } from "@/lib/requirementMatch";
+import { resolveRecordId } from "@/lib/resolveRecordId";
 
 // Requirement matching (11/14/2026, migration 037 — Phase 4 of Retail Listing
 // Intake & Matching). Scoring rule: lib/requirementMatchCore.ts.
@@ -14,6 +15,7 @@ import { createMatchTasks, matchesForProperty, matchesForRequirement } from "@/l
 // POST /api/agent/requirement-matches  { property_id, dry_run? }
 //        → creates one Your Move task (category listing_match) per strong
 //          match on a live listing, de-duplicated; returns created/skipped.
+// property_id / requirement_id accept the uuid or the display code (PROP-3515, REQ-0013).
 
 function fail(e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -26,7 +28,7 @@ export async function GET(request: NextRequest) {
   const requirementId = sp.get("requirement_id");
   try {
     if (propertyId) {
-      const r = await matchesForProperty(propertyId);
+      const r = await matchesForProperty(await resolveRecordId("properties", propertyId));
       return NextResponse.json({
         property: r.property,
         listings: r.listings,
@@ -36,7 +38,7 @@ export async function GET(request: NextRequest) {
       });
     }
     if (requirementId) {
-      const r = await matchesForRequirement(requirementId, {
+      const r = await matchesForRequirement(await resolveRecordId("requirements", requirementId), {
         includeOffMarket: sp.get("include_off_market") === "true",
       });
       return NextResponse.json(r);
@@ -57,7 +59,9 @@ export async function POST(request: NextRequest) {
   const propertyId = String(body.property_id || "").trim();
   if (!propertyId) return NextResponse.json({ error: "property_id is required." }, { status: 400 });
   try {
-    const r = await createMatchTasks(propertyId, { dryRun: body.dry_run === true });
+    const r = await createMatchTasks(await resolveRecordId("properties", propertyId), {
+      dryRun: body.dry_run === true,
+    });
     return NextResponse.json({
       property: { id: r.property.id, display_code: r.property.display_code, address: r.property.address },
       created: r.results.filter((x) => x.action === "created").length,

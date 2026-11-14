@@ -1807,9 +1807,14 @@ server.registerTool(
         title: "Set property photo",
         description:
           "Set the thumbnail photo shown on a property's map card and property page (migration " +
-          "035). Pass image_base64 (JPEG/PNG/WebP, resize to ~480px wide, max 2MB) to upload it to " +
-          "the property-photos Storage bucket, or url to point at an existing https image, or " +
-          "clear: true to remove it (the map then falls back to a Mapbox satellite crop). source " +
+          "035). property_id takes the uuid or display code (PROP-3515). Preferred: copy_from_url " +
+          "(an https image, or a path on the CRM app such as /property-photos/x.jpg) — the server " +
+          "fetches it and uploads it to the property-photos Storage bucket, so no image data passes " +
+          "through the chat. copy_current: true does the same with the property's current photo_url " +
+          "(moves a static or external photo into Storage). image_base64 (JPEG/PNG/WebP, ~480px " +
+          "wide, max 2MB) uploads directly — only for small images. url points at an existing https " +
+          "image without copying it. clear: true removes the photo (the map then falls back to a " +
+          "Mapbox satellite crop). source " +
           "records where it came from: flyer, om, assessor, costar, dan, other. Listing intake: use " +
           "the flyer/OM cover photo first, the assessor photo second.",
         inputSchema: {
@@ -1817,6 +1822,8 @@ server.registerTool(
           image_base64: z.string().optional(),
           content_type: z.string().optional(),
           url: z.string().optional(),
+          copy_from_url: z.string().optional(),
+          copy_current: z.boolean().optional(),
           source: z.string().optional(),
           clear: z.boolean().optional(),
         },
@@ -1902,7 +1909,8 @@ server.registerTool(
       {
         title: "Find requirement matches (Who wants this?)",
         description:
-          "Phase 4 buyer/tenant matching (migration 037). With property_id: 'Who wants this?' — every " +
+          "Phase 4 buyer/tenant matching (migration 037). property_id / requirement_id take the uuid " +
+          "or the display code (PROP-3515, REQ-0013). With property_id: 'Who wants this?' — every " +
           "active and on-hold requirement scored against the property and its latest listing: sale/" +
           "land listings vs. buyer/investor/developer requirements (lane buyer), lease/sublease vs. " +
           "tenant requirements (lane tenant), no live listing = off_market (an owner-conversation " +
@@ -2896,7 +2904,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.19.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.20.0" },
     verboseLogs: true,
   }
 );
