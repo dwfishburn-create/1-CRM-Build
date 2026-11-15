@@ -21,7 +21,7 @@ import {
 export const MATCH_TASK_CATEGORY = "listing_match";
 
 const REQ_COLUMNS =
-  "id, display_code, status, deal_type, property_type, sides, asset_classes, target_markets, size_min, size_max, " +
+  "id, display_code, status, deal_type, property_type, sides, asset_classes, target_markets, outside_markets, size_min, size_max, " +
   "acres_min, acres_max, budget_min, budget_max, cap_rate_min, tenancy_types, credit_floor, min_term_years, " +
   "exchange_1031, exchange_identify_by, exchange_close_by, priority, details";
 
