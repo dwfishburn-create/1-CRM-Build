@@ -51,6 +51,7 @@ export const CREDIT_LEVELS: Choice[] = [
 export const CRITERIA_FIELDS = [
   "sides",
   "asset_classes",
+  "outside_markets",
   "acres_min",
   "acres_max",
   "cap_rate_min",
@@ -91,6 +92,7 @@ export function parseCriteriaFields(input: Record<string, unknown>): Record<stri
     if (has(k)) out[k] = parseNum(k, input[k]);
   }
   if (has("exchange_1031")) out.exchange_1031 = parseBool(input.exchange_1031);
+  if (has("outside_markets")) out.outside_markets = parseBool(input.outside_markets);
   if (has("exchange_identify_by")) out.exchange_identify_by = parseDate("exchange_identify_by", input.exchange_identify_by);
   if (has("exchange_close_by")) out.exchange_close_by = parseDate("exchange_close_by", input.exchange_close_by);
   if (out.cap_rate_min !== undefined && out.cap_rate_min !== null) {
@@ -114,6 +116,7 @@ export function criteriaFromForm(fd: FormData): Record<string, unknown> {
     cap_rate_min: s("cap_rate_min"),
     min_term_years: s("min_term_years"),
     exchange_1031: fd.get("exchange_1031") === "on",
+    outside_markets: fd.get("outside_markets") === "on",
     exchange_identify_by: s("exchange_identify_by"),
     exchange_close_by: s("exchange_close_by"),
   });

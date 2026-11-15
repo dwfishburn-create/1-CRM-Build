@@ -559,14 +559,14 @@ export default async function PropertyDetailPage(props: PageProps<"/properties/[
         )}
         {nearMisses.length > 0 && (
           <p className="text-xs text-gray-500 mt-2">
-            Not strong (property type or market missed, or too little known):{" "}
+            Not strong:{" "}
             {nearMisses.map((m, i) => (
               <span key={m.requirement_id}>
                 {i > 0 && ", "}
                 <Link href={`/requirements/${m.requirement_id}`} className="underline">
                   {m.requirement.display_code}
                 </Link>{" "}
-                {m.pct}%
+                {m.pct}%{m.not_strong_reason ? ` (${m.not_strong_reason})` : ""}
               </span>
             ))}
           </p>

@@ -16,6 +16,7 @@ export type CriteriaValues = {
   credit_floor?: string | null;
   min_term_years?: number | null;
   exchange_1031?: boolean | null;
+  outside_markets?: boolean | null;
   exchange_identify_by?: string | null;
   exchange_close_by?: string | null;
 };
@@ -49,6 +50,11 @@ export function CriteriaFields({ v = {}, input }: { v?: CriteriaValues; input: s
       <div className="col-span-2">
         <Checks name="asset_classes" list={ASSET_CLASSES} values={v.asset_classes ?? []} legend="Property classes" />
       </div>
+      <label className="col-span-4 text-xs text-gray-600 dark:text-gray-400 flex items-center gap-2">
+        <input type="checkbox" name="outside_markets" defaultChecked={!!v.outside_markets} />
+        Wants markets outside Omaha / Lincoln / Greater NE / CB-Western IA (e.g. Des Moines, national) — scores
+        market as a miss on properties inside them
+      </label>
       <label className="text-xs text-gray-600 dark:text-gray-400">
         Land min (acres)
         <input name="acres_min" type="number" step="any" defaultValue={num(v.acres_min)} className={`${input} w-full`} />

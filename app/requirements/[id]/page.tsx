@@ -53,6 +53,7 @@ type Requirement = {
   credit_floor: string | null;
   min_term_years: number | null;
   exchange_1031: boolean | null;
+  outside_markets: boolean | null;
   exchange_identify_by: string | null;
   exchange_close_by: string | null;
 };
@@ -128,7 +129,7 @@ export default async function RequirementDetailPage(
       supabase
         .from("requirements")
         .select(
-          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets, rtd_shared, rtd_shared_at, rtd_note, rtd_contact, source_system, sides, asset_classes, acres_min, acres_max, cap_rate_min, tenancy_types, credit_floor, min_term_years, exchange_1031, exchange_identify_by, exchange_close_by"
+          "id, display_code, deal_type, property_type, size_min, size_max, budget_min, budget_max, target_location, timeline, status, priority, details, source, confidence, source_date, reconfirm_date, target_markets, rtd_shared, rtd_shared_at, rtd_note, rtd_contact, source_system, sides, asset_classes, acres_min, acres_max, cap_rate_min, tenancy_types, credit_floor, min_term_years, exchange_1031, exchange_identify_by, exchange_close_by, outside_markets"
         )
         .eq("id", id)
         .maybeSingle()
@@ -284,6 +285,7 @@ export default async function RequirementDetailPage(
         {(requirement.acres_min !== null || requirement.acres_max !== null) && (
           <> · Land {rangeLabel(requirement.acres_min, requirement.acres_max)} ac</>
         )}
+        {requirement.outside_markets && <> · Market outside Dan&apos;s four</>}
         {requirement.cap_rate_min !== null && <> · Cap {requirement.cap_rate_min}%+</>}
         {(requirement.tenancy_types ?? []).length > 0 && (
           <> · Tenancy: {(requirement.tenancy_types ?? []).map((x) => labelOf(TENANCY_TYPES, x)).join(", ")}</>

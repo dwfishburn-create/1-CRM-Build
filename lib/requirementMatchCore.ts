@@ -8,14 +8,20 @@
 //   Strong match = 50% or better.
 // So score = met / (met + missed), with unknowns listed separately.
 //
-// Two guards (Claude's call 11/14, flag if wrong), both from the 11/10 Wildcat
-// lesson that thin matches are noise:
+// Guards on "strong" (confirmed by Dan 11/14/2026, with the acres gate and
+// outside_markets added the same day — migration 038):
 //   - strong needs at least 2 criteria actually known (met or missed);
 //   - strong needs the asset class AND the market not to be a miss (an
 //     Omaha-only buyer is not a strong match for a Lincoln listing just
-//     because the property type fits — 2 known criteria, 1 met = 50%).
+//     because the property type fits — 2 known criteria, 1 met = 50%);
+//   - a requirement that states acres needs acres KNOWN and MET — site size
+//     is a dealbreaker for a pad/land user, so an unknown or missed acreage
+//     stays a near miss (no task) until acres are on the listing;
+//   - outside_markets = the party's market is outside Dan's four, so market
+//     scores as a miss on any property inside them (it used to be blank and
+//     never counted — the REQ-0002 Wildcat false positive).
 // Requirements on hold are scored and shown as "paused", never strong
-// (lesson b, 11/10).
+// (lesson b, 11/10). not_strong_reason says which guard held a match back.
 
 export type Side = "tenant" | "buyer" | "investor" | "developer";
 export type Market = "omaha_metro" | "lincoln" | "greater_nebraska" | "cb_western_iowa";
@@ -29,6 +35,8 @@ export type MatchRequirement = {
   sides: string[] | null;
   asset_classes: string[] | null;
   target_markets: string[] | null;
+  /** migration 038 — wants markets outside Dan's four */
+  outside_markets?: boolean | null;
   size_min: number | null;
   size_max: number | null;
   acres_min: number | null;
@@ -89,6 +97,8 @@ export type MatchResult = {
   unknown: Criterion[];
   strong: boolean;
   paused: boolean;
+  /** Why a 50%+ match isn't strong (null when strong or under 50%). */
+  not_strong_reason: string | null;
   exchange_note: string | null;
 };
 
@@ -221,18 +231,18 @@ export function scoreMatch(
     }
   }
 
-  // 2. Market
-  if (req.target_markets?.length) {
+  // 2. Market (target_markets and/or outside_markets)
+  const wantMarkets = req.target_markets ?? [];
+  const wantsOutside = !!req.outside_markets;
+  if (wantMarkets.length || wantsOutside) {
     const m = marketOf(prop);
     const label = "Market";
-    if (m === null) put(null, { key: "market", label, detail: `wants ${req.target_markets.join(", ")}; city not recorded` });
+    const wantText = [...wantMarkets, ...(wantsOutside ? ["outside Dan's markets"] : [])].join(", ");
+    if (m === null) put(null, { key: "market", label, detail: `wants ${wantText}; city not recorded` });
     else {
       const where = [prop.city, prop.state].filter(Boolean).join(", ");
-      put(m !== "out" && req.target_markets.includes(m), {
-        key: "market",
-        label,
-        detail: `wants ${req.target_markets.join(", ")}; in ${where || m}`,
-      });
+      const ok = m === "out" ? wantsOutside : wantMarkets.includes(m);
+      put(ok, { key: "market", label, detail: `wants ${wantText}; in ${where || m}` });
     }
   }
 
@@ -311,8 +321,16 @@ export function scoreMatch(
   const known = met.length + missed.length;
   const score = known ? met.length / known : null;
   const paused = req.status === "on_hold";
-  const gateMissed = missed.some((c) => c.key === "asset_class" || c.key === "market");
-  const strong = !paused && known >= 2 && score !== null && score >= 0.5 && !gateMissed;
+  const wantsAcres = req.acres_min !== null || req.acres_max !== null;
+  let not_strong_reason: string | null = null;
+  if (score !== null && score >= 0.5 && !paused) {
+    if (missed.some((c) => c.key === "asset_class")) not_strong_reason = "property type missed";
+    else if (missed.some((c) => c.key === "market")) not_strong_reason = "market missed";
+    else if (wantsAcres && missed.some((c) => c.key === "acres")) not_strong_reason = "land size missed";
+    else if (wantsAcres && unknown.some((c) => c.key === "acres")) not_strong_reason = "acres unknown";
+    else if (known < 2) not_strong_reason = "too little known";
+  }
+  const strong = !paused && score !== null && score >= 0.5 && not_strong_reason === null;
 
   let exchange_note: string | null = null;
   if (req.exchange_1031) {
@@ -334,6 +352,7 @@ export function scoreMatch(
     unknown,
     strong,
     paused,
+    not_strong_reason,
     exchange_note,
   };
 }

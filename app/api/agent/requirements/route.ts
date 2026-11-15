@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 // 11/14/2026 (migration 037): also the matching criteria — sides, asset_classes,
 // acres_min/max, cap_rate_min, tenancy_types, credit_floor, min_term_years,
 // exchange_1031, exchange_identify_by, exchange_close_by
-// (lib/requirementCriteria.ts). Same fields on PATCH.
+// (lib/requirementCriteria.ts). 11/14/2026 (migration 038): outside_markets. Same fields on PATCH.
 // Mirrors app/requirements/actions.ts:createRequirement field-for-field.
 //
 // 10/13/2026 (migration 026): the four expansion-signal fields — confidence

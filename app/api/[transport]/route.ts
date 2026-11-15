@@ -222,6 +222,7 @@ const requirementCriteriaArgs = {
   exchange_1031: z.boolean().optional(),
   exchange_identify_by: z.string().optional(),
   exchange_close_by: z.string().optional(),
+  outside_markets: z.boolean().optional(),
 };
 const REQUIREMENT_CRITERIA_TEXT =
   "MATCHING CRITERIA (migration 037, 11/14/2026) — what find_requirement_matches scores against: " +
@@ -232,7 +233,10 @@ const REQUIREMENT_CRITERIA_TEXT =
   "budget_min/budget_max (price for buyers; annual rent $ for tenants), cap_rate_min (percent, 6.5 " +
   "= 6.5%), tenancy_types, credit_floor (investment_grade > national > regional > local), " +
   "min_term_years (remaining lease term), exchange_1031 + exchange_identify_by / " +
-  "exchange_close_by (YYYY-MM-DD). Set only what the party actually said — a blank criterion " +
+  "exchange_close_by (YYYY-MM-DD), outside_markets (true = the party wants markets outside " +
+  "Dan's four, e.g. Des Moines or national; market then scores as a miss on properties inside " +
+  "them — migration 038). A requirement that states acres_min/acres_max is only a strong match " +
+  "when the listing's acres are known and in range. Set only what the party actually said — a blank criterion " +
   "is not scored. Always set sides, asset_classes and target_markets on a new requirement.";
 
 const REQUIREMENT_SIGNAL_TEXT =
@@ -2904,7 +2908,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.20.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.21.0" },
     verboseLogs: true,
   }
 );
