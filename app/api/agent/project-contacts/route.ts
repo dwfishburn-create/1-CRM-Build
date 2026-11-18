@@ -53,7 +53,8 @@ export async function GET(request: NextRequest) {
 // 8/30/2026 project_collaborators decision.
 // Body: { project_id, contact_id?, entity_id?, role?, party_side?, notes?,
 //         prospect_stage?, prospect_source?, first_contact_date?, company_note?,
-//         ca_signed_on?, ca_note? }
+//         ca_signed_on?, ca_note?, package_sent?, package_sent_on?, package_note?,
+//         offer_made?, offer_made_on?, offer_note? }
 // (split_pct retired 10/10/2026 — use /api/agent/commission-participants)
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
@@ -119,7 +120,9 @@ export async function POST(request: NextRequest) {
     prospect_stage: PROSPECT_STAGES,
     prospect_source: PROSPECT_SOURCES,
   };
-  for (const key of ["prospect_stage", "prospect_source", "first_contact_date", "company_note", "ca_signed_on", "ca_note"]) {
+  const DATES = ["first_contact_date", "ca_signed_on", "package_sent_on", "offer_made_on"];
+  for (const key of ["prospect_stage", "prospect_source", "first_contact_date", "company_note", "ca_signed_on", "ca_note",
+    "package_sent_on", "package_note", "offer_made_on", "offer_note"]) {
     if (!(key in body)) continue;
     const v = String(body[key] ?? "").trim();
     if (v && lists[key] && !lists[key].some((o) => o.value === v)) {
@@ -128,10 +131,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    if (v && (key === "first_contact_date" || key === "ca_signed_on") && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    if (v && DATES.includes(key) && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
       return NextResponse.json({ error: `${key} must be YYYY-MM-DD.` }, { status: 400 });
     }
     row[key] = v || null;
+  }
+
+  // Buyer package / offer flags (migration 041). A date sets its flag (DB
+  // trigger); false clears the flag, its date and its note.
+  for (const key of ["package_sent", "offer_made"]) {
+    if (!(key in body)) continue;
+    const v = body[key];
+    if (typeof v !== "boolean") {
+      return NextResponse.json({ error: `${key} must be true or false.` }, { status: 400 });
+    }
+    row[key] = v;
   }
 
   // Upsert on whichever pair the caller is actually linking — contact_id

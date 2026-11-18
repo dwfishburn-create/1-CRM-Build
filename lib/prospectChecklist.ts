@@ -31,6 +31,14 @@ export type ProspectRow = {
   /** Date the signed confidentiality agreement came back (migration 040). */
   ca_signed_on: string | null;
   ca_note: string | null;
+  /** Buyer package sent (migration 041); date when known. */
+  package_sent: boolean;
+  package_sent_on: string | null;
+  package_note: string | null;
+  /** Offer made (migration 041); date of the latest offer, terms in the note. */
+  offer_made: boolean;
+  offer_made_on: string | null;
+  offer_note: string | null;
   role: string | null;
   notes: string | null;
   last_action_date: string | null;
@@ -79,6 +87,12 @@ type PCRec = {
   company_note: string | null;
   ca_signed_on: string | null;
   ca_note: string | null;
+  package_sent: boolean | null;
+  package_sent_on: string | null;
+  package_note: string | null;
+  offer_made: boolean | null;
+  offer_made_on: string | null;
+  offer_note: string | null;
   created_at: string;
   contact: ContactRec | ContactRec[] | null;
   entity: Named | Named[] | null;
@@ -109,7 +123,7 @@ export async function loadProspectChecklist(projectId: string): Promise<Checklis
     supabase
       .from("project_contacts")
       .select(
-        "id, contact_id, entity_id, role, notes, party_side, prospect_no, first_contact_date, prospect_source, prospect_stage, company_note, ca_signed_on, ca_note, created_at, " +
+        "id, contact_id, entity_id, role, notes, party_side, prospect_no, first_contact_date, prospect_source, prospect_stage, company_note, ca_signed_on, ca_note, package_sent, package_sent_on, package_note, offer_made, offer_made_on, offer_note, created_at, " +
           "contact:contacts!contact_id(id, display_code, first_name, last_name, email, phone, mobile_phone, entity_id, needs_verification, entity:entities!entity_id(id, name, display_code)), " +
           "entity:entities!entity_id(id, name, display_code)"
       )
@@ -226,6 +240,12 @@ export async function loadProspectChecklist(projectId: string): Promise<Checklis
       stage: p.prospect_stage,
       ca_signed_on: p.ca_signed_on,
       ca_note: p.ca_note,
+      package_sent: !!p.package_sent || !!p.package_sent_on,
+      package_sent_on: p.package_sent_on,
+      package_note: p.package_note,
+      offer_made: !!p.offer_made || !!p.offer_made_on,
+      offer_made_on: p.offer_made_on,
+      offer_note: p.offer_note,
       role: p.role,
       notes: p.notes,
       last_action_date: last ? day(last.activity_date) : null,

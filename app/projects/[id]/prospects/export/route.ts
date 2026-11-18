@@ -52,6 +52,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
   const ws = wb.addWorksheet("Prospect Checklist", { views: [{ state: "frozen", ySplit: 4, xSplit: 3 }] });
   const headers = [
     "ID #", "First Contact", "Name", "Company / Entity", "Email", "Phone", "Source", "Stage", "Signed CA",
+    "Buyer Package Sent", "Offer Made", "Offer Terms",
     "Last Action (Date)", "Last Action", called_since ? `Called since ${called_since}` : "Called",
     "Open Task Due", "Open Task",
     ...campaigns.map((c) => (c.sent_on ? `${c.name} (${c.sent_on})` : c.name)),
@@ -61,7 +62,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
     `${project.project_code} — Prospect Checklist (oldest first contact at top)`,
     `${project.client_name} · ${rows.length} buyer prospects · exported ${stamp} from CRM - Dan Fishburn`,
     headers,
-    [5, 12, 24, 32, 30, 16, 15, 15, 12, 12, 50, 12, 12, 40, ...campaigns.map(() => 18)]
+    [5, 12, 24, 32, 30, 16, 15, 15, 12, 14, 12, 36, 12, 50, 12, 12, 40, ...campaigns.map(() => 18)]
   );
   for (const r of rows) {
     const row = ws.addRow([
@@ -74,6 +75,9 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
       sourceLabel(r.source),
       stageLabel(r.stage),
       toDate(r.ca_signed_on),
+      r.package_sent ? toDate(r.package_sent_on) ?? "Yes (no date)" : null,
+      r.offer_made ? toDate(r.offer_made_on) ?? "Yes (no date)" : null,
+      r.offer_note ?? "",
       toDate(r.last_action_date),
       [r.last_action_type, r.last_action_summary].filter(Boolean).join(" — "),
       r.called_on ? toDate(r.called_on) : "No",
@@ -84,13 +88,16 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
         return x ? `${campaignStatusLabel(x.status)}${x.note ? ` – ${x.note}` : ""}` : "";
       }),
     ]);
-    for (const col of [2, 9, 10, 12, 13]) row.getCell(col).numFmt = "m/d/yy";
-    row.getCell(11).alignment = { wrapText: true, vertical: "top" };
+    for (const col of [2, 9, 10, 11, 13, 15, 16]) row.getCell(col).numFmt = "m/d/yy";
+    row.getCell(12).alignment = { wrapText: true, vertical: "top" };
     row.getCell(14).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(17).alignment = { wrapText: true, vertical: "top" };
     if (!r.phone) row.getCell(6).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDE2E2" } };
     if (!r.email) row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3C4" } };
     if (r.ca_signed_on) row.getCell(9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCCFBF1" } };
-    if (r.open_task_overdue) row.getCell(13).font = { color: { argb: "FFC00000" }, bold: true };
+    if (r.package_sent) row.getCell(10).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3E8FF" } };
+    if (r.offer_made) row.getCell(11).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFEDD5" } };
+    if (r.open_task_overdue) row.getCell(16).font = { color: { argb: "FFC00000" }, bold: true };
     if (r.stage === "passed") row.font = { color: { argb: "FF888888" } };
   }
 

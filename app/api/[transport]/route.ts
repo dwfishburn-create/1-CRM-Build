@@ -1625,6 +1625,12 @@ server.registerTool(
           company_note: z.string().optional().describe("Company/property as given, shown when no entity is linked."),
           ca_signed_on: z.string().optional().describe("YYYY-MM-DD the prospect's signed confidentiality agreement came back (teal CA tag on the checklist). Empty clears."),
           ca_note: z.string().optional().describe("Qualifies the signed CA, e.g. \"broker block only; buyer not named\"."),
+          package_sent: z.boolean().optional().describe("Buyer package sent (purple Pkg tag). false clears the flag, its date and note. A package_sent_on date sets it automatically."),
+          package_sent_on: z.string().optional().describe("YYYY-MM-DD the buyer package went out, when known. Empty clears the date only."),
+          package_note: z.string().optional().describe("What went out, e.g. \"Buyer Package Dropbox link; 2026 YTD still owed\"."),
+          offer_made: z.boolean().optional().describe("Prospect made an offer (coral Offer tag). false clears the flag, its date and note. An offer_made_on date sets it automatically."),
+          offer_made_on: z.string().optional().describe("YYYY-MM-DD of the prospect's LATEST offer."),
+          offer_note: z.string().optional().describe("Offer terms, e.g. \"$500K cash, 30-day close, $50K EM\"; keep earlier offers here too."),
         },
       },
       async (args) => toolResult(await agentApiPost("project-contacts", args))
@@ -1638,27 +1644,30 @@ server.registerTool(
         description:
           "The Prospect Checklist for a listing: every buyer prospect (counterparty, role containing " +
           "\"prospect\" or \"buyer\"; never the seller) with a STABLE per-listing # (prospect_no), first " +
-          "contact date, name/contact_id, company, email, phone, source, stage, ca_signed_on (signed CA), last action, called_on " +
+          "contact date, name/contact_id, company, email, phone, source, stage, ca_signed_on (signed CA), package_sent/package_sent_on (buyer package), " +
+          "offer_made/offer_made_on/offer_note (offer), last action, called_on " +
           "(latest call/text on or after the newest campaign), next open task (overdue flag) and campaign " +
           "flags. Dan reports calls by number (\"#19 talked, wants tour\") — pass prospect_no to resolve " +
           "the number to a contact before logging with log_activity (project_id + contact_id). New prospects " +
           "linked with link_project_contact (party_side counterparty, role \"Buyer prospect\") get the next " +
-          "number automatically. Filters: stage, not_called. Same rows as the web page " +
+          "number automatically. Filters: stage, not_called, milestone (ca | package | offer). Same rows as the web page " +
           "/projects/[id]/prospects and its .xlsx export (the Existing Prospects list).",
         inputSchema: {
           project_id: z.string().min(1),
           prospect_no: z.number().int().optional(),
           stage: z.string().optional(),
           not_called: z.boolean().optional(),
+          milestone: z.enum(["ca", "package", "offer"]).optional().describe("Only prospects with a signed CA, a buyer package sent, or an offer made."),
         },
       },
-      async ({ project_id, prospect_no, stage, not_called }) =>
+      async ({ project_id, prospect_no, stage, not_called, milestone }) =>
         toolResult(
           await agentApiGet("prospect-checklist", {
             project_id,
             prospect_no: prospect_no?.toString(),
             stage,
             not_called: not_called ? "true" : undefined,
+            milestone,
           })
         )
     );
@@ -3001,7 +3010,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.23.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.24.0" },
     verboseLogs: true,
   }
 );

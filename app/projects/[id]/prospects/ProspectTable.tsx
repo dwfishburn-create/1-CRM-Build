@@ -15,6 +15,7 @@ import {
   quickLogProspectAction,
   setCampaignStatusAction,
   setSignedCaAction,
+  setMilestoneAction,
   setProspectFieldAction,
 } from "./actions";
 
@@ -28,7 +29,21 @@ import {
 const CA_TAG =
   "px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap bg-teal-100 text-teal-800 border border-teal-300 dark:bg-teal-900/70 dark:text-teal-200 dark:border-teal-600";
 
-type SortKey = "first_contact" | "last_action" | "stage" | "no";
+// Purple = documents sent; coral = closing/target milestones (migration 041).
+const PKG_TAG =
+  "px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap bg-purple-100 text-purple-800 border border-purple-300 dark:bg-purple-900/70 dark:text-purple-200 dark:border-purple-500";
+const OFFER_TAG =
+  "px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap bg-orange-100 text-orange-800 border border-orange-300 dark:bg-orange-900/70 dark:text-orange-200 dark:border-orange-500";
+
+type SortKey = "first_contact" | "last_action" | "stage" | "no" | "ca" | "package" | "offer";
+
+// Milestone sorts: prospects that reached it first, newest date at the top,
+// "sent but no date recorded" next, then everyone else by first contact.
+function milestoneOf(r: ProspectRow, key: "ca" | "package" | "offer"): { has: boolean; on: string | null } {
+  if (key === "ca") return { has: !!r.ca_signed_on, on: r.ca_signed_on };
+  if (key === "package") return { has: r.package_sent, on: r.package_sent_on };
+  return { has: r.offer_made, on: r.offer_made_on };
+}
 
 const STAGE_ORDER = new Map<string, number>(PROSPECT_STAGES.map((s, i) => [s.value, i]));
 
@@ -128,6 +143,51 @@ function QuickLog({ projectId, row, onDone }: { projectId: string; row: Prospect
   );
 }
 
+function MilestoneForm({ projectId, row, which }: { projectId: string; row: ProspectRow; which: "package" | "offer" }) {
+  const isPkg = which === "package";
+  const has = isPkg ? row.package_sent : row.offer_made;
+  const on = isPkg ? row.package_sent_on : row.offer_made_on;
+  const note = isPkg ? row.package_note : row.offer_note;
+  const field = "border border-gray-300 rounded px-2 py-1 text-sm bg-transparent";
+  return (
+    <ActionForm action={setMilestoneAction} className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-end gap-3">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="project_contact_id" value={row.project_contact_id} />
+      <input type="hidden" name="milestone" value={which} />
+      <label className="text-sm flex items-center gap-1.5 self-center">
+        <input type="checkbox" name="flag" defaultChecked={has} />
+        <span className={isPkg ? PKG_TAG : OFFER_TAG}>{isPkg ? "Buyer package sent" : "Offer made"}</span>
+      </label>
+      <label className="text-xs text-gray-500 flex flex-col">
+        {isPkg ? "Sent on (optional)" : "Latest offer on (optional)"}
+        <input name="on" type="date" defaultValue={on ?? ""} className={field} />
+      </label>
+      <label className="text-xs text-gray-500 flex flex-col">
+        {isPkg ? "Package note (optional)" : "Offer terms"}
+        <input
+          name="note"
+          defaultValue={note ?? ""}
+          className={`${field} w-96`}
+          placeholder={isPkg ? "e.g. Dropbox link; 2026 YTD still owed" : "e.g. $500K cash, 30-day close, $50K EM"}
+        />
+      </label>
+      <button
+        type="submit"
+        className={`px-3 py-1 rounded border text-sm ${
+          isPkg
+            ? "border-purple-600 text-purple-700 dark:border-purple-400 dark:text-purple-300"
+            : "border-orange-600 text-orange-700 dark:border-orange-400 dark:text-orange-300"
+        }`}
+      >
+        {isPkg ? "Save package" : "Save offer"}
+      </button>
+      <span className="text-xs text-gray-500">
+        Uncheck and save to remove. Checking it moves an earlier stage to {isPkg ? "Package sent" : "Offer"}.
+      </span>
+    </ActionForm>
+  );
+}
+
 export function ProspectTable({
   projectId,
   rows,
@@ -144,6 +204,8 @@ export function ProspectTable({
   const [hidePassed, setHidePassed] = useState(false);
   const [notCalled, setNotCalled] = useState(false);
   const [caOnly, setCaOnly] = useState(false);
+  const [pkgOnly, setPkgOnly] = useState(false);
+  const [offerOnly, setOfferOnly] = useState(false);
   const [q, setQ] = useState("");
   const [openLog, setOpenLog] = useState<string | null>(null);
 
@@ -154,6 +216,8 @@ export function ProspectTable({
       if (hidePassed && r.stage === "passed") return false;
       if (notCalled && r.called_on) return false;
       if (caOnly && !r.ca_signed_on) return false;
+      if (pkgOnly && !r.package_sent) return false;
+      if (offerOnly && !r.offer_made) return false;
       if (needle) {
         const hay = [r.name, r.company, r.email, r.phone, r.prospect_no?.toString()].join(" ").toLowerCase();
         if (!hay.includes(needle)) return false;
@@ -164,6 +228,17 @@ export function ProspectTable({
       (a.first_contact_date ?? "9999").localeCompare(b.first_contact_date ?? "9999") ||
       (a.prospect_no ?? 1e9) - (b.prospect_no ?? 1e9);
     out.sort((a, b) => {
+      if (sort === "ca" || sort === "package" || sort === "offer") {
+        const ma = milestoneOf(a, sort);
+        const mb = milestoneOf(b, sort);
+        if (ma.has !== mb.has) return ma.has ? -1 : 1;
+        if (ma.has) {
+          if (!!ma.on !== !!mb.on) return ma.on ? -1 : 1;
+          const c = (mb.on ?? "").localeCompare(ma.on ?? "");
+          if (c) return c;
+        }
+        return byFirst(a, b);
+      }
       if (sort === "no") return (a.prospect_no ?? 1e9) - (b.prospect_no ?? 1e9);
       if (sort === "last_action")
         return (b.last_action_date ?? "").localeCompare(a.last_action_date ?? "") || byFirst(a, b);
@@ -172,10 +247,12 @@ export function ProspectTable({
       return byFirst(a, b);
     });
     return out;
-  }, [rows, sort, stage, hidePassed, notCalled, caOnly, q]);
+  }, [rows, sort, stage, hidePassed, notCalled, caOnly, pkgOnly, offerOnly, q]);
 
   const calledCount = rows.filter((r) => r.called_on).length;
   const caCount = rows.filter((r) => r.ca_signed_on).length;
+  const pkgCount = rows.filter((r) => r.package_sent).length;
+  const offerCount = rows.filter((r) => r.offer_made).length;
   const ctl = "border border-gray-300 rounded px-2 py-1 text-sm bg-transparent";
   // Frozen header row (Dan, 11/18): the table scrolls inside its own box and
   // the header cells stick to its top. Each cell needs its own solid
@@ -195,6 +272,9 @@ export function ProspectTable({
             <option value="first_contact">First contact (oldest first)</option>
             <option value="last_action">Last action (newest first)</option>
             <option value="stage">Stage (furthest along first)</option>
+            <option value="ca">Signed CA (newest first)</option>
+            <option value="package">Buyer package sent (newest first)</option>
+            <option value="offer">Offer made (newest first)</option>
             <option value="no">ID #</option>
           </select>
         </label>
@@ -217,6 +297,14 @@ export function ProspectTable({
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={caOnly} onChange={(e) => setCaOnly(e.target.checked)} />
           Signed CA only ({caCount})
+        </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={pkgOnly} onChange={(e) => setPkgOnly(e.target.checked)} />
+          Package sent only ({pkgCount})
+        </label>
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={offerOnly} onChange={(e) => setOfferOnly(e.target.checked)} />
+          Offer made only ({offerCount})
         </label>
         <label className="flex items-center gap-1">
           <input type="checkbox" checked={hidePassed} onChange={(e) => setHidePassed(e.target.checked)} />
@@ -249,6 +337,14 @@ export function ProspectTable({
           <li className="flex items-center gap-2">
             <span className={CA_TAG}>CA ✓ 11/13/26</span>
             = signed confidentiality agreement received
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={PKG_TAG}>Pkg ✓ 11/14/26</span>
+            = buyer package sent (no date = sent, date not recorded)
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={OFFER_TAG}>Offer 11/16/26</span>
+            = offer made (latest; hover for terms)
           </li>
           <li className="flex items-center gap-2">
             <span className="text-amber-600 dark:text-amber-400">⚑</span>
@@ -289,7 +385,7 @@ export function ProspectTable({
               <th className={th}>Email</th>
               <th className={th}>Phone</th>
               <th className={th}>Source</th>
-              <th className={th}>Stage</th>
+              <th className={th} title="Stage, plus milestone tags: CA signed (teal), buyer package sent (purple), offer made (coral)">Stage / milestones</th>
               <th className={th}>Last action</th>
               <th className={th} title={calledSince ? `Phone touch (call or text) on or after ${md(calledSince)}` : "Phone touch (call or text)"}>
                 Called
@@ -325,11 +421,6 @@ export function ProspectTable({
                         </Link>
                       ) : (
                         r.name
-                      )}
-                      {r.ca_signed_on && (
-                        <span className={`ml-1.5 ${CA_TAG}`} title={`Signed CA received ${md(r.ca_signed_on)}${r.ca_note ? ` — ${r.ca_note}` : ""}`}>
-                          CA ✓ {md(r.ca_signed_on)}
-                        </span>
                       )}
                       {r.needs_verification && (
                         <span title="Contact record needs verification" className="ml-1 text-amber-600 dark:text-amber-400">
@@ -383,6 +474,31 @@ export function ProspectTable({
                         options={PROSPECT_STAGES}
                         blank="—"
                       />
+                      {(r.ca_signed_on || r.package_sent || r.offer_made) && (
+                        <div className="mt-1 flex flex-col items-start gap-1">
+                          {r.ca_signed_on && (
+                            <span className={`${CA_TAG}`} title={`Signed CA received ${md(r.ca_signed_on)}${r.ca_note ? ` — ${r.ca_note}` : ""}`}>
+                              CA ✓ {md(r.ca_signed_on)}
+                            </span>
+                          )}
+                          {r.package_sent && (
+                            <span
+                              className={`${PKG_TAG}`}
+                              title={`Buyer package sent${r.package_sent_on ? ` ${md(r.package_sent_on)}` : " (date not recorded)"}${r.package_note ? ` — ${r.package_note}` : ""}`}
+                            >
+                              Pkg ✓{r.package_sent_on ? ` ${md(r.package_sent_on)}` : ""}
+                            </span>
+                          )}
+                          {r.offer_made && (
+                            <span
+                              className={`${OFFER_TAG}`}
+                              title={`Offer made${r.offer_made_on ? ` ${md(r.offer_made_on)}` : " (date not recorded)"}${r.offer_note ? ` — ${r.offer_note}` : ""}`}
+                            >
+                              Offer{r.offer_made_on ? ` ${md(r.offer_made_on)}` : ""}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className={`${td} min-w-[16rem] max-w-[24rem]`}>
                       {r.last_action_date ? (
@@ -472,6 +588,8 @@ export function ProspectTable({
                           </button>
                           <span className="text-xs text-gray-500">Clear the date and save to remove it. Saving a date moves an earlier stage to CA signed.</span>
                         </ActionForm>
+                        <MilestoneForm projectId={projectId} row={r} which="package" />
+                        <MilestoneForm projectId={projectId} row={r} which="offer" />
                       </td>
                     </tr>
                   )}

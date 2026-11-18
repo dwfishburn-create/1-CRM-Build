@@ -22,6 +22,11 @@ export async function GET(request: NextRequest) {
     if (no) rows = rows.filter((r) => r.prospect_no === Number(no));
     if (stage) rows = rows.filter((r) => r.stage === stage);
     if (notCalled) rows = rows.filter((r) => !r.called_on);
+    // milestone=ca|package|offer (migration 041): only prospects that reached it.
+    const milestone = sp.get("milestone");
+    if (milestone === "ca") rows = rows.filter((r) => !!r.ca_signed_on);
+    if (milestone === "package") rows = rows.filter((r) => r.package_sent);
+    if (milestone === "offer") rows = rows.filter((r) => r.offer_made);
     return NextResponse.json({ ...checklist, rows, total: checklist.rows.length });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });

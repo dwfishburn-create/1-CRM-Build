@@ -143,3 +143,39 @@ export async function setSignedCaAction(_prev: FormResult, fd: FormData): Promis
   refresh(project_id);
   return { ok: true, at: Date.now() };
 }
+
+// Buyer package sent / offer made (migration 041). One form per milestone:
+// the checkbox is the flag, the date is optional (several Joliet packages went
+// out in June with no date recorded). Checking a milestone moves an earlier
+// stage up to it ("Package sent" / "Offer"); later stages are left alone.
+const STAGE_RANK = ["cold", "contacted", "brochure_sent", "ca_pending", "ca_signed", "package_sent", "touring", "offer", "under_contract"];
+
+export async function setMilestoneAction(_prev: FormResult, fd: FormData): Promise<FormResult> {
+  const project_id = str(fd, "project_id");
+  const id = str(fd, "project_contact_id");
+  const which = str(fd, "milestone");
+  if (!id) return failed(new Error("project_contact_id is required."));
+  if (which !== "package" && which !== "offer") return failed(new Error("Unknown milestone."));
+  const on = str(fd, "on");
+  if (on && !/^\d{4}-\d{2}-\d{2}$/.test(on)) return failed(new Error("Pick a date, or leave it blank."));
+  const flag = fd.get("flag") === "on" || !!on;
+  const prefix = which === "package" ? "package" : "offer";
+  const patch: Record<string, unknown> = {
+    [which === "package" ? "package_sent" : "offer_made"]: flag,
+    [which === "package" ? "package_sent_on" : "offer_made_on"]: flag ? on || null : null,
+    [`${prefix}_note`]: flag ? str(fd, "note") || null : null,
+  };
+  if (flag) {
+    const { data: cur, error: rErr } = await supabase
+      .from("project_contacts").select("prospect_stage").eq("id", id).maybeSingle();
+    if (rErr) return failed(new Error(rErr.message));
+    const target = which === "package" ? "package_sent" : "offer";
+    const curRank = cur?.prospect_stage ? STAGE_RANK.indexOf(cur.prospect_stage) : -1;
+    // -1 = no stage, or on hold / passed: only a missing stage gets moved up.
+    if (!cur?.prospect_stage || (curRank >= 0 && curRank < STAGE_RANK.indexOf(target))) patch.prospect_stage = target;
+  }
+  const { error } = await supabase.from("project_contacts").update(patch).eq("id", id);
+  if (error) return failed(new Error(error.message));
+  refresh(project_id);
+  return { ok: true, at: Date.now() };
+}
