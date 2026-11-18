@@ -51,7 +51,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
   // Sheet 1 — the checklist
   const ws = wb.addWorksheet("Prospect Checklist", { views: [{ state: "frozen", ySplit: 4, xSplit: 3 }] });
   const headers = [
-    "#", "First Contact", "Name", "Company / Entity", "Email", "Phone", "Source", "Stage",
+    "#", "First Contact", "Name", "Company / Entity", "Email", "Phone", "Source", "Stage", "Signed CA",
     "Last Action (Date)", "Last Action", called_since ? `Called since ${called_since}` : "Called",
     "Open Task Due", "Open Task",
     ...campaigns.map((c) => (c.sent_on ? `${c.name} (${c.sent_on})` : c.name)),
@@ -61,7 +61,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
     `${project.project_code} — Prospect Checklist (oldest first contact at top)`,
     `${project.client_name} · ${rows.length} buyer prospects · exported ${stamp} from CRM - Dan Fishburn`,
     headers,
-    [5, 12, 24, 32, 30, 16, 15, 15, 12, 50, 12, 12, 40, ...campaigns.map(() => 18)]
+    [5, 12, 24, 32, 30, 16, 15, 15, 12, 12, 50, 12, 12, 40, ...campaigns.map(() => 18)]
   );
   for (const r of rows) {
     const row = ws.addRow([
@@ -73,6 +73,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
       r.phone ?? "NOT ON FILE",
       sourceLabel(r.source),
       stageLabel(r.stage),
+      toDate(r.ca_signed_on),
       toDate(r.last_action_date),
       [r.last_action_type, r.last_action_summary].filter(Boolean).join(" — "),
       r.called_on ? toDate(r.called_on) : "No",
@@ -83,12 +84,13 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
         return x ? `${campaignStatusLabel(x.status)}${x.note ? ` – ${x.note}` : ""}` : "";
       }),
     ]);
-    for (const col of [2, 9, 11, 12]) row.getCell(col).numFmt = "m/d/yy";
-    row.getCell(10).alignment = { wrapText: true, vertical: "top" };
-    row.getCell(13).alignment = { wrapText: true, vertical: "top" };
+    for (const col of [2, 9, 10, 12, 13]) row.getCell(col).numFmt = "m/d/yy";
+    row.getCell(11).alignment = { wrapText: true, vertical: "top" };
+    row.getCell(14).alignment = { wrapText: true, vertical: "top" };
     if (!r.phone) row.getCell(6).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDE2E2" } };
     if (!r.email) row.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF3C4" } };
-    if (r.open_task_overdue) row.getCell(12).font = { color: { argb: "FFC00000" }, bold: true };
+    if (r.ca_signed_on) row.getCell(9).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCCFBF1" } };
+    if (r.open_task_overdue) row.getCell(13).font = { color: { argb: "FFC00000" }, bold: true };
     if (r.stage === "passed") row.font = { color: { argb: "FF888888" } };
   }
 

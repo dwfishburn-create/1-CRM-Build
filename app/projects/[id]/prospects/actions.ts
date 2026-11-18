@@ -122,3 +122,24 @@ export async function addCampaignAction(_prev: FormResult, fd: FormData): Promis
   refresh(project_id);
   return { ok: true, at: Date.now() };
 }
+
+// Signed CA received (migration 040). Saving a date also moves an earlier
+// stage (cold … CA pending) up to "CA signed"; later stages are left alone.
+const BEFORE_CA = ["cold", "contacted", "brochure_sent", "ca_pending"];
+
+export async function setSignedCaAction(_prev: FormResult, fd: FormData): Promise<FormResult> {
+  const project_id = str(fd, "project_id");
+  const id = str(fd, "project_contact_id");
+  const signed = str(fd, "ca_signed_on");
+  if (!id) return failed(new Error("project_contact_id is required."));
+  if (signed && !/^\d{4}-\d{2}-\d{2}$/.test(signed)) return failed(new Error("Pick the date the signed CA came back."));
+  const { data: cur, error: rErr } = await supabase
+    .from("project_contacts").select("prospect_stage").eq("id", id).maybeSingle();
+  if (rErr) return failed(new Error(rErr.message));
+  const patch: Record<string, unknown> = { ca_signed_on: signed || null, ca_note: str(fd, "ca_note") || null };
+  if (signed && (!cur?.prospect_stage || BEFORE_CA.includes(cur.prospect_stage))) patch.prospect_stage = "ca_signed";
+  const { error } = await supabase.from("project_contacts").update(patch).eq("id", id);
+  if (error) return failed(new Error(error.message));
+  refresh(project_id);
+  return { ok: true, at: Date.now() };
+}

@@ -14,6 +14,7 @@ import type { ProspectRow } from "@/lib/prospectChecklist";
 import {
   quickLogProspectAction,
   setCampaignStatusAction,
+  setSignedCaAction,
   setProspectFieldAction,
 } from "./actions";
 
@@ -22,6 +23,10 @@ import {
 // is first contact, oldest at the top, the same as the spreadsheet it
 // replaces; the # column never changes, so "#19 talked" always means the same
 // person.
+
+// Teal = executed documents, the same as Dan's deal timelines.
+const CA_TAG =
+  "px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap bg-teal-100 text-teal-800 border border-teal-300 dark:bg-teal-900/70 dark:text-teal-200 dark:border-teal-600";
 
 type SortKey = "first_contact" | "last_action" | "stage" | "no";
 
@@ -138,6 +143,7 @@ export function ProspectTable({
   const [stage, setStage] = useState<string>("");
   const [hidePassed, setHidePassed] = useState(false);
   const [notCalled, setNotCalled] = useState(false);
+  const [caOnly, setCaOnly] = useState(false);
   const [q, setQ] = useState("");
   const [openLog, setOpenLog] = useState<string | null>(null);
 
@@ -147,6 +153,7 @@ export function ProspectTable({
       if (stage === "_none" ? r.stage : stage && r.stage !== stage) return false;
       if (hidePassed && r.stage === "passed") return false;
       if (notCalled && r.called_on) return false;
+      if (caOnly && !r.ca_signed_on) return false;
       if (needle) {
         const hay = [r.name, r.company, r.email, r.phone, r.prospect_no?.toString()].join(" ").toLowerCase();
         if (!hay.includes(needle)) return false;
@@ -165,11 +172,16 @@ export function ProspectTable({
       return byFirst(a, b);
     });
     return out;
-  }, [rows, sort, stage, hidePassed, notCalled, q]);
+  }, [rows, sort, stage, hidePassed, notCalled, caOnly, q]);
 
   const calledCount = rows.filter((r) => r.called_on).length;
+  const caCount = rows.filter((r) => r.ca_signed_on).length;
   const ctl = "border border-gray-300 rounded px-2 py-1 text-sm bg-transparent";
-  const th = "px-2 py-2 text-left font-medium whitespace-nowrap";
+  // Frozen header row (Dan, 11/18): the table scrolls inside its own box and
+  // the header cells stick to its top. Each cell needs its own solid
+  // background, or rows show through while scrolling.
+  const th =
+    "px-2 py-2 text-left font-medium whitespace-nowrap sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 shadow-[inset_0_-1px_0_rgba(0,0,0,0.15)] dark:shadow-[inset_0_-1px_0_rgba(255,255,255,0.15)]";
   const td = "px-2 py-1.5 align-top";
   const cols = 12 + campaigns.length;
 
@@ -203,6 +215,10 @@ export function ProspectTable({
           Not yet called{calledSince ? ` since ${md(calledSince)}` : ""}
         </label>
         <label className="flex items-center gap-1">
+          <input type="checkbox" checked={caOnly} onChange={(e) => setCaOnly(e.target.checked)} />
+          Signed CA only ({caCount})
+        </label>
+        <label className="flex items-center gap-1">
           <input type="checkbox" checked={hidePassed} onChange={(e) => setHidePassed(e.target.checked)} />
           Hide passed
         </label>
@@ -225,6 +241,10 @@ export function ProspectTable({
           <li className="flex items-center gap-2">
             <span className="font-medium text-red-600 dark:text-red-400 tabular-nums">11/20/26 overdue</span>
             = follow-up past due
+          </li>
+          <li className="flex items-center gap-2">
+            <span className={CA_TAG}>CA ✓ 11/13/26</span>
+            = signed confidentiality agreement received
           </li>
           <li className="flex items-center gap-2">
             <span className="text-amber-600 dark:text-amber-400">⚑</span>
@@ -252,7 +272,7 @@ export function ProspectTable({
           )}
         </ul>
       </div>
-      <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+      <div className="overflow-auto max-h-[calc(100vh-9rem)] border border-gray-200 dark:border-gray-700 rounded-lg">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600">
             <tr>
@@ -299,6 +319,11 @@ export function ProspectTable({
                         </Link>
                       ) : (
                         r.name
+                      )}
+                      {r.ca_signed_on && (
+                        <span className={`ml-1.5 ${CA_TAG}`} title={`Signed CA received ${md(r.ca_signed_on)}${r.ca_note ? ` — ${r.ca_note}` : ""}`}>
+                          CA ✓ {md(r.ca_signed_on)}
+                        </span>
                       )}
                       {r.needs_verification && (
                         <span title="Contact record needs verification" className="ml-1 text-amber-600 dark:text-amber-400">
@@ -425,6 +450,22 @@ export function ProspectTable({
                           {r.phone ? ` · ${r.phone}` : ""}
                         </p>
                         <QuickLog projectId={projectId} row={r} onDone={() => setOpenLog(null)} />
+                        <ActionForm action={setSignedCaAction} className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-wrap items-end gap-3">
+                          <input type="hidden" name="project_id" value={projectId} />
+                          <input type="hidden" name="project_contact_id" value={r.project_contact_id} />
+                          <label className="text-xs text-gray-500 flex flex-col">
+                            Signed CA received on
+                            <input name="ca_signed_on" type="date" defaultValue={r.ca_signed_on ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm" />
+                          </label>
+                          <label className="text-xs text-gray-500 flex flex-col">
+                            CA note (optional)
+                            <input name="ca_note" defaultValue={r.ca_note ?? ""} className="border border-gray-300 rounded px-2 py-1 text-sm w-96" placeholder="e.g. broker block only; buyer not named" />
+                          </label>
+                          <button type="submit" className="px-3 py-1 rounded border border-teal-600 text-teal-700 dark:border-teal-400 dark:text-teal-300 text-sm">
+                            Save CA
+                          </button>
+                          <span className="text-xs text-gray-500">Clear the date and save to remove it. Saving a date moves an earlier stage to CA signed.</span>
+                        </ActionForm>
                       </td>
                     </tr>
                   )}

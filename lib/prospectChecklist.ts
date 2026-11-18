@@ -28,6 +28,9 @@ export type ProspectRow = {
   phone: string | null;
   source: string | null;
   stage: string | null;
+  /** Date the signed confidentiality agreement came back (migration 040). */
+  ca_signed_on: string | null;
+  ca_note: string | null;
   role: string | null;
   notes: string | null;
   last_action_date: string | null;
@@ -74,6 +77,8 @@ type PCRec = {
   prospect_source: string | null;
   prospect_stage: string | null;
   company_note: string | null;
+  ca_signed_on: string | null;
+  ca_note: string | null;
   created_at: string;
   contact: ContactRec | ContactRec[] | null;
   entity: Named | Named[] | null;
@@ -104,7 +109,7 @@ export async function loadProspectChecklist(projectId: string): Promise<Checklis
     supabase
       .from("project_contacts")
       .select(
-        "id, contact_id, entity_id, role, notes, party_side, prospect_no, first_contact_date, prospect_source, prospect_stage, company_note, created_at, " +
+        "id, contact_id, entity_id, role, notes, party_side, prospect_no, first_contact_date, prospect_source, prospect_stage, company_note, ca_signed_on, ca_note, created_at, " +
           "contact:contacts!contact_id(id, display_code, first_name, last_name, email, phone, mobile_phone, entity_id, needs_verification, entity:entities!entity_id(id, name, display_code)), " +
           "entity:entities!entity_id(id, name, display_code)"
       )
@@ -219,6 +224,8 @@ export async function loadProspectChecklist(projectId: string): Promise<Checklis
       phone: (c?.mobile_phone || c?.phone || "").trim() || null,
       source: p.prospect_source,
       stage: p.prospect_stage,
+      ca_signed_on: p.ca_signed_on,
+      ca_note: p.ca_note,
       role: p.role,
       notes: p.notes,
       last_action_date: last ? day(last.activity_date) : null,
