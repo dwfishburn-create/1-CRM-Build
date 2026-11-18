@@ -9,8 +9,8 @@ import {
   PROSPECT_STAGES,
   QUICK_LOG,
   type Campaign,
-  type ProspectRow,
-} from "@/lib/prospectChecklist";
+} from "@/lib/prospectChecklistShared";
+import type { ProspectRow } from "@/lib/prospectChecklist";
 import {
   quickLogProspectAction,
   setCampaignStatusAction,
