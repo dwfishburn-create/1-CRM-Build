@@ -94,7 +94,7 @@ function QuickLog({ projectId, row, onDone }: { projectId: string; row: Prospect
             aria-checked={kind === q.key}
             onClick={() => setKind(q.key)}
             className={`px-2 py-1 rounded border text-xs ${
-              kind === q.key ? "bg-blue-600 text-white border-blue-600" : "border-gray-300"
+              kind === q.key ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 dark:border-gray-500"
             }`}
           >
             {q.label}
@@ -211,9 +211,17 @@ export function ProspectTable({
         </span>
       </div>
 
-      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+      <p className="mb-2 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+        <span>
+          <span className="inline-block w-3 h-3 align-middle mr-1 rounded-sm bg-green-50 dark:bg-emerald-900/45 border-l-4 border-l-green-500 dark:border-l-emerald-400" />
+          Called or texted{calledSince ? ` since ${md(calledSince)}` : ""}
+        </span>
+        <span className="opacity-50">Faded = passed</span>
+        <span className="text-red-600 dark:text-red-400">Red date = overdue follow-up</span>
+      </p>
+      <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200">
+          <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600">
             <tr>
               <th className={th}>#</th>
               <th className={th}>First contact</th>
@@ -243,9 +251,11 @@ export function ProspectTable({
               return (
                 <Fragment key={r.project_contact_id}>
                   <tr
-                    className={`border-b border-gray-100 ${r.stage === "passed" ? "text-gray-400" : ""} ${
-                      r.called_on ? "bg-green-50 dark:bg-green-950/30" : ""
-                    }`}
+                    className={`border-b border-gray-200 dark:border-gray-700 border-l-4 ${
+                      r.called_on
+                        ? "bg-green-50 dark:bg-emerald-900/45 border-l-green-500 dark:border-l-emerald-400"
+                        : "border-l-transparent"
+                    } ${r.stage === "passed" ? "opacity-50" : ""}`}
                   >
                     <td className={`${td} font-semibold tabular-nums`}>{r.prospect_no ?? "—"}</td>
                     <td className={`${td} whitespace-nowrap tabular-nums`}>{md(r.first_contact_date)}</td>
@@ -258,7 +268,7 @@ export function ProspectTable({
                         r.name
                       )}
                       {r.needs_verification && (
-                        <span title="Contact record needs verification" className="ml-1 text-amber-600">
+                        <span title="Contact record needs verification" className="ml-1 text-amber-600 dark:text-amber-400">
                           ⚑
                         </span>
                       )}
@@ -278,7 +288,7 @@ export function ProspectTable({
                           {r.email}
                         </a>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-xs">no email</span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/70 dark:text-amber-200 text-xs">no email</span>
                       )}
                     </td>
                     <td className={`${td} whitespace-nowrap`}>
@@ -287,7 +297,7 @@ export function ProspectTable({
                           {r.phone}
                         </a>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 text-xs">no phone</span>
+                        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/70 dark:text-red-200 text-xs">no phone</span>
                       )}
                     </td>
                     <td className={td}>
@@ -325,10 +335,16 @@ export function ProspectTable({
                         <span className="text-gray-400">No activity logged</span>
                       )}
                     </td>
-                    <td className={`${td} whitespace-nowrap tabular-nums`}>{r.called_on ? `✓ ${md(r.called_on)}` : "—"}</td>
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      {r.called_on ? (
+                        <span className="font-medium text-green-700 dark:text-emerald-300">✓ {md(r.called_on)}</span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className={`${td} min-w-[12rem] max-w-[18rem]`}>
                       {r.open_task ? (
-                        <span className={r.open_task_overdue ? "text-red-600 font-medium" : ""}>
+                        <span className={r.open_task_overdue ? "text-red-600 dark:text-red-400 font-medium" : ""}>
                           <span className="tabular-nums">{md(r.open_task.due_date)}</span>
                           {r.open_task_overdue && " overdue"}
                           <span className="block text-xs line-clamp-2" title={r.open_task.description}>
@@ -362,14 +378,14 @@ export function ProspectTable({
                       <button
                         type="button"
                         onClick={() => setOpenLog(openLog === r.project_contact_id ? null : r.project_contact_id)}
-                        className="px-2 py-0.5 rounded border border-blue-600 text-blue-700 text-xs whitespace-nowrap"
+                        className="px-2 py-0.5 rounded border border-blue-600 dark:border-blue-400 text-blue-700 text-xs whitespace-nowrap"
                       >
                         + Log
                       </button>
                     </td>
                   </tr>
                   {openLog === r.project_contact_id && (
-                    <tr className="border-b border-gray-200 bg-blue-50/50 dark:bg-blue-950/30">
+                    <tr className="border-b border-gray-200 dark:border-gray-700 bg-blue-50/50 dark:bg-blue-950/60">
                       <td colSpan={cols} className="px-3 py-3">
                         <p className="text-xs text-gray-500 mb-2">
                           #{r.prospect_no} {r.name}

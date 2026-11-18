@@ -33,14 +33,14 @@ export default async function ProspectChecklistPage(props: PageProps<"/projects/
           <h1 className="text-2xl font-semibold">Prospect Checklist</h1>
           <p className="text-gray-500 text-sm">
             {project.project_code} · {project.client_name} · {rows.length} buyer prospects
-            {noPhone > 0 && <> · <span className="text-red-700">{noPhone} no phone</span></>}
-            {noEmail > 0 && <> · <span className="text-amber-700">{noEmail} no email</span></>}
-            {overdue > 0 && <> · <span className="text-red-600 font-medium">{overdue} overdue follow-up{overdue === 1 ? "" : "s"}</span></>}
+            {noPhone > 0 && <> · <span className="text-red-700 dark:text-red-400">{noPhone} no phone</span></>}
+            {noEmail > 0 && <> · <span className="text-amber-700 dark:text-amber-300">{noEmail} no email</span></>}
+            {overdue > 0 && <> · <span className="text-red-600 dark:text-red-400 font-medium">{overdue} overdue follow-up{overdue === 1 ? "" : "s"}</span></>}
           </p>
         </div>
         <a
           href={`/projects/${id}/prospects/export`}
-          className="px-3 py-1.5 rounded border border-gray-300 text-sm"
+          className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-500 text-sm"
           title="Same columns as this page. Doubles as the Listing Agreement's Existing Prospects list."
         >
           Export to Excel
@@ -55,7 +55,7 @@ export default async function ProspectChecklistPage(props: PageProps<"/projects/
 
       <ProspectTable projectId={id} rows={rows} campaigns={campaigns} calledSince={called_since} />
 
-      <details className="mt-6 border border-gray-200 rounded-lg">
+      <details className="mt-6 border border-gray-200 dark:border-gray-700 rounded-lg">
         <summary className="cursor-pointer px-4 py-2 text-sm font-medium text-blue-700 select-none">
           + Add a campaign column (a dated send to the prospect list)
         </summary>
