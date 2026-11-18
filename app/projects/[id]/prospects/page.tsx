@@ -49,8 +49,7 @@ export default async function ProspectChecklistPage(props: PageProps<"/projects/
 
       <p className="text-xs text-gray-500 mb-3">
         A prospect is anyone linked to this deal as <em>counterparty</em> with a role containing “prospect” or
-        “buyer”; the seller is never listed. Numbers never change, so “#19” always means the same person. A new
-        prospect linked to the deal gets the next number automatically.
+        “buyer”; the seller is never listed. A new prospect linked to the deal gets the next ID # automatically.
       </p>
 
       <ProspectTable projectId={id} rows={rows} campaigns={campaigns} calledSince={called_since} />
