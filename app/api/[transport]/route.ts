@@ -1623,6 +1623,8 @@ server.registerTool(
             .describe("Where the prospect came from. Omit to leave as-is."),
           first_contact_date: z.string().optional().describe("YYYY-MM-DD. Defaults to the day a prospect is first linked."),
           company_note: z.string().optional().describe("Company/property as given, shown when no entity is linked."),
+          ca_signed_on: z.string().optional().describe("YYYY-MM-DD the prospect's signed confidentiality agreement came back (teal CA tag on the checklist). Empty clears."),
+          ca_note: z.string().optional().describe("Qualifies the signed CA, e.g. \"broker block only; buyer not named\"."),
         },
       },
       async (args) => toolResult(await agentApiPost("project-contacts", args))
@@ -1636,7 +1638,7 @@ server.registerTool(
         description:
           "The Prospect Checklist for a listing: every buyer prospect (counterparty, role containing " +
           "\"prospect\" or \"buyer\"; never the seller) with a STABLE per-listing # (prospect_no), first " +
-          "contact date, name/contact_id, company, email, phone, source, stage, last action, called_on " +
+          "contact date, name/contact_id, company, email, phone, source, stage, ca_signed_on (signed CA), last action, called_on " +
           "(latest call/text on or after the newest campaign), next open task (overdue flag) and campaign " +
           "flags. Dan reports calls by number (\"#19 talked, wants tour\") — pass prospect_no to resolve " +
           "the number to a contact before logging with log_activity (project_id + contact_id). New prospects " +
@@ -2999,7 +3001,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.22.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.23.0" },
     verboseLogs: true,
   }
 );
