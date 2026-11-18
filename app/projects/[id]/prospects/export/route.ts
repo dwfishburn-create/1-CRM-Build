@@ -51,7 +51,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
   // Sheet 1 — the checklist
   const ws = wb.addWorksheet("Prospect Checklist", { views: [{ state: "frozen", ySplit: 4, xSplit: 3 }] });
   const headers = [
-    "#", "First Contact", "Name", "Company / Entity", "Email", "Phone", "Source", "Stage", "Signed CA",
+    "ID #", "First Contact", "Name", "Company / Entity", "Email", "Phone", "Source", "Stage", "Signed CA",
     "Last Action (Date)", "Last Action", called_since ? `Called since ${called_since}` : "Called",
     "Open Task Due", "Open Task",
     ...campaigns.map((c) => (c.sent_on ? `${c.name} (${c.sent_on})` : c.name)),
@@ -100,7 +100,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
     ep,
     `Existing Prospects — ${project.project_code}`,
     `Prospects introduced to the property during the listing term, as of ${stamp}. Seller: ${project.client_name}.`,
-    ["#", "Name", "Company / Entity", "Email", "Phone", "First Contact", "Source"],
+    ["ID #", "Name", "Company / Entity", "Email", "Phone", "First Contact", "Source"],
     [5, 26, 36, 32, 18, 13, 16]
   );
   for (const r of [...rows].sort((a, b) => (a.prospect_no ?? 1e9) - (b.prospect_no ?? 1e9))) {

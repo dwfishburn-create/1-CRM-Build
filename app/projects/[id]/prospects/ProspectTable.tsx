@@ -188,14 +188,14 @@ export function ProspectTable({
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-3 text-sm">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find # / name / company / phone" className={`${ctl} w-64`} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find ID # / name / company / phone" className={`${ctl} w-64`} />
         <label className="flex items-center gap-1">
           Sort
           <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} className={ctl}>
             <option value="first_contact">First contact (oldest first)</option>
             <option value="last_action">Last action (newest first)</option>
             <option value="stage">Stage (furthest along first)</option>
-            <option value="no">#</option>
+            <option value="no">ID #</option>
           </select>
         </label>
         <label className="flex items-center gap-1">
@@ -228,6 +228,10 @@ export function ProspectTable({
       </div>
 
       <div className="mb-3 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-xs">
+        <p className="mb-1.5">
+          <span className="font-semibold">ID #</span> is permanent for this listing — it never changes or gets reused, so
+          you can say “#19 talked, wants tour” in chat and it updates the right record.
+        </p>
         <p className="font-semibold mb-1.5">Color key</p>
         <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-4">
           <li className="flex items-center gap-2">
@@ -276,7 +280,9 @@ export function ProspectTable({
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600">
             <tr>
-              <th className={th}>#</th>
+              <th className={th} title="Permanent ID for this listing — never changes or gets reused. Use it in chat: “#19 talked, wants tour.”">
+                ID #
+              </th>
               <th className={th}>First contact</th>
               <th className={th}>Name</th>
               <th className={th}>Company / entity</th>
