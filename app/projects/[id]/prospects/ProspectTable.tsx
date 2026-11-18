@@ -211,14 +211,47 @@ export function ProspectTable({
         </span>
       </div>
 
-      <p className="mb-2 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
-        <span>
-          <span className="inline-block w-3 h-3 align-middle mr-1 rounded-sm bg-green-50 dark:bg-emerald-900/45 border-l-4 border-l-green-500 dark:border-l-emerald-400" />
-          Called or texted{calledSince ? ` since ${md(calledSince)}` : ""}
-        </span>
-        <span className="opacity-50">Faded = passed</span>
-        <span className="text-red-600 dark:text-red-400">Red date = overdue follow-up</span>
-      </p>
+      <div className="mb-3 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 text-xs">
+        <p className="font-semibold mb-1.5">Color key</p>
+        <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-4">
+          <li className="flex items-center gap-2">
+            <span className="inline-block w-5 h-4 rounded-sm bg-green-50 dark:bg-emerald-900/45 border-l-4 border-l-green-500 dark:border-l-emerald-400" />
+            Green row = called or texted{calledSince ? ` since ${md(calledSince)}` : ""}
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="inline-block w-5 h-4 rounded-sm border border-gray-400 opacity-50 bg-gray-300 dark:bg-gray-600" />
+            Faded row = passed
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="font-medium text-red-600 dark:text-red-400 tabular-nums">11/20/26 overdue</span>
+            = follow-up past due
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="text-amber-600 dark:text-amber-400">⚑</span>
+            = contact record needs checking
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/70 dark:text-amber-200">no email</span>
+            = no email on file
+          </li>
+          <li className="flex items-center gap-2">
+            <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-900/70 dark:text-red-200">no phone</span>
+            = no phone on file
+          </li>
+          {campaigns.length > 0 && (
+            <>
+              <li className="flex items-center gap-2">
+                <span className="inline-block px-1.5 rounded border-2 border-green-500 bg-white text-gray-900">Sent</span>
+                = got the campaign (sent, or told another way)
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="inline-block px-1.5 rounded border-2 border-amber-500 bg-white text-gray-900">Not sent</span>
+                = didn&apos;t get it (not sent or bounced); gray box = no flag yet
+              </li>
+            </>
+          )}
+        </ul>
+      </div>
       <div className="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-600">
