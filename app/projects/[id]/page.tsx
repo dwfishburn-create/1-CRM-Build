@@ -25,6 +25,7 @@ import {
   type TaskLite,
 } from "@/app/_components/RecordParts";
 import { contactOptions } from "@/lib/contactOptions";
+import { isBuyerProspect } from "@/lib/prospectChecklist";
 
 export const dynamic = "force-dynamic";
 
@@ -237,6 +238,13 @@ export default async function ProjectDetailPage(
     (e) => !linkedEntityIds.has(e.id)
   );
 
+  // Prospect Checklist (11/18/2026): shown on sale/lease/land/sublease
+  // listings, and on any deal that already has buyer prospects linked.
+  const prospectCount = (projectContacts ?? []).filter((pc) =>
+    isBuyerProspect(pc.party_side, pc.role)
+  ).length;
+  const isListing = /^(CS|CL|L|SL)\b/.test(project.project_type ?? "");
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <Link href="/projects" className="text-sm text-blue-600 underline">
@@ -258,6 +266,15 @@ export default async function ProjectDetailPage(
         <p className="text-sm text-gray-600 mb-6 border border-gray-200 rounded-lg p-3">
           {project.notes}
         </p>
+      )}
+
+      {(prospectCount > 0 || isListing) && (
+        <Link
+          href={`/projects/${project.id}/prospects`}
+          className="inline-block mb-6 px-3 py-1.5 rounded border border-blue-600 text-blue-700 text-sm"
+        >
+          Prospect Checklist ({prospectCount} buyer prospect{prospectCount === 1 ? "" : "s"}) →
+        </Link>
       )}
 
       <PipelineSection projectId={project.id} variant="prompt" />
