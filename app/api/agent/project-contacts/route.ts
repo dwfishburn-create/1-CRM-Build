@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { PROSPECT_SOURCES, PROSPECT_STAGES } from "@/lib/prospectChecklist";
 
 // GET /api/agent/project-contacts?limit=50 — list project<->contact/entity
 // links, most recent first. Optional ?project_id= filters to one project.
@@ -50,7 +51,8 @@ export async function GET(request: NextRequest) {
 // actual dollar amount — that needs the still-unbuilt deal-value/EV
 // scoring. See the 8/26/2026 "Solo vs. collaborator flag" idea and the
 // 8/30/2026 project_collaborators decision.
-// Body: { project_id, contact_id?, entity_id?, role?, party_side?, notes? }
+// Body: { project_id, contact_id?, entity_id?, role?, party_side?, notes?,
+//         prospect_stage?, prospect_source?, first_contact_date?, company_note? }
 // (split_pct retired 10/10/2026 — use /api/agent/commission-participants)
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
@@ -106,6 +108,29 @@ export async function POST(request: NextRequest) {
       );
     }
     row.party_side = side || null;
+  }
+
+  // Prospect Checklist fields (11/18/2026, migration 039). Like party_side,
+  // each is written only when sent, so re-linking never wipes them. A buyer
+  // prospect's prospect_no is assigned by the DB trigger (max + 1) and is
+  // never taken from the caller — the number has to stay stable.
+  const lists: Record<string, readonly { value: string }[]> = {
+    prospect_stage: PROSPECT_STAGES,
+    prospect_source: PROSPECT_SOURCES,
+  };
+  for (const key of ["prospect_stage", "prospect_source", "first_contact_date", "company_note"]) {
+    if (!(key in body)) continue;
+    const v = String(body[key] ?? "").trim();
+    if (v && lists[key] && !lists[key].some((o) => o.value === v)) {
+      return NextResponse.json(
+        { error: `${key} must be one of: ${lists[key].map((o) => o.value).join(", ")} (or empty to clear).` },
+        { status: 400 }
+      );
+    }
+    if (v && key === "first_contact_date" && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      return NextResponse.json({ error: "first_contact_date must be YYYY-MM-DD." }, { status: 400 });
+    }
+    row[key] = v || null;
   }
 
   // Upsert on whichever pair the caller is actually linking — contact_id

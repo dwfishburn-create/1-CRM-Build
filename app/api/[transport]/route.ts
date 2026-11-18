@@ -1611,9 +1611,100 @@ server.registerTool(
           role: z.string().optional(),
           party_side: z.enum(["client", "counterparty", "other", ""]).optional(),
           notes: z.string().optional(),
+          prospect_stage: z
+            .enum(["cold", "contacted", "brochure_sent", "ca_pending", "ca_signed", "package_sent",
+              "touring", "offer", "under_contract", "on_hold", "passed", ""])
+            .optional()
+            .describe("Prospect Checklist stage (buyer prospects only). Omit to leave as-is; empty clears."),
+          prospect_source: z
+            .enum(["loopnet", "crexi", "costar", "prospect_sheet", "inbound_email", "inbound_call",
+              "sign_call", "broker", "referral", "other", ""])
+            .optional()
+            .describe("Where the prospect came from. Omit to leave as-is."),
+          first_contact_date: z.string().optional().describe("YYYY-MM-DD. Defaults to the day a prospect is first linked."),
+          company_note: z.string().optional().describe("Company/property as given, shown when no entity is linked."),
         },
       },
       async (args) => toolResult(await agentApiPost("project-contacts", args))
+    );
+
+    // --- Prospect Checklist (migration 039, 11/18/2026) ---
+    server.registerTool(
+      "get_prospect_checklist",
+      {
+        title: "Get prospect checklist",
+        description:
+          "The Prospect Checklist for a listing: every buyer prospect (counterparty, role containing " +
+          "\"prospect\" or \"buyer\"; never the seller) with a STABLE per-listing # (prospect_no), first " +
+          "contact date, name/contact_id, company, email, phone, source, stage, last action, called_on " +
+          "(latest call/text on or after the newest campaign), next open task (overdue flag) and campaign " +
+          "flags. Dan reports calls by number (\"#19 talked, wants tour\") — pass prospect_no to resolve " +
+          "the number to a contact before logging with log_activity (project_id + contact_id). New prospects " +
+          "linked with link_project_contact (party_side counterparty, role \"Buyer prospect\") get the next " +
+          "number automatically. Filters: stage, not_called. Same rows as the web page " +
+          "/projects/[id]/prospects and its .xlsx export (the Existing Prospects list).",
+        inputSchema: {
+          project_id: z.string().min(1),
+          prospect_no: z.number().int().optional(),
+          stage: z.string().optional(),
+          not_called: z.boolean().optional(),
+        },
+      },
+      async ({ project_id, prospect_no, stage, not_called }) =>
+        toolResult(
+          await agentApiGet("prospect-checklist", {
+            project_id,
+            prospect_no: prospect_no?.toString(),
+            stage,
+            not_called: not_called ? "true" : undefined,
+          })
+        )
+    );
+    server.registerTool(
+      "list_project_campaigns",
+      {
+        title: "List listing campaigns",
+        description:
+          "Campaigns on a listing — dated sends to its prospect list (e.g. \"$1.2M repricing email\", " +
+          "11/13/26), each a column on the Prospect Checklist — with recipient counts by status.",
+        inputSchema: { project_id: z.string().min(1) },
+      },
+      async ({ project_id }) => toolResult(await agentApiGet("project-campaigns", { project_id }))
+    );
+    server.registerTool(
+      "create_project_campaign",
+      {
+        title: "Create listing campaign",
+        description:
+          "Add a campaign (a dated send to a listing's prospect list) — it becomes a column on the " +
+          "Prospect Checklist and its sent_on date becomes the \"since\" for not-yet-called. Then mark who " +
+          "got it with set_campaign_recipient.",
+        inputSchema: {
+          project_id: z.string().min(1),
+          name: z.string().min(1),
+          sent_on: z.string().optional().describe("YYYY-MM-DD"),
+          notes: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("project-campaigns", args))
+    );
+    server.registerTool(
+      "set_campaign_recipient",
+      {
+        title: "Set campaign recipient",
+        description:
+          "Mark whether one prospect got a campaign: sent / told_other (told by call, text or in an intro " +
+          "instead) / not_sent (e.g. no email) / bounced; empty status removes the flag. Identify the " +
+          "prospect by project_contact_id or by the listing's prospect_no.",
+        inputSchema: {
+          campaign_id: z.string().min(1),
+          status: z.enum(["sent", "told_other", "not_sent", "bounced", ""]),
+          project_contact_id: z.string().optional(),
+          prospect_no: z.number().int().optional(),
+          note: z.string().optional(),
+        },
+      },
+      async (args) => toolResult(await agentApiPost("project-campaigns", args))
     );
 
     // --- pipeline: commission participants and payments (migration 025, 10/10/2026) ---
@@ -2908,7 +2999,7 @@ server.registerTool(
     // unchanged. BUMP THIS any time a tool is added, removed, or has its
     // input schema changed — treat it as a real cache-busting key, not a
     // cosmetic version number.
-    serverInfo: { name: "dan-fishburn-crm", version: "1.21.0" },
+    serverInfo: { name: "dan-fishburn-crm", version: "1.22.0" },
     verboseLogs: true,
   }
 );
