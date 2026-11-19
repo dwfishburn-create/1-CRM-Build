@@ -32,7 +32,9 @@ import {
   sf,
 } from "@/lib/records";
 
-export type SearchKind = "contact" | "entity" | "property" | "project" | "requirement";
+import type { SearchScopeKind } from "@/lib/searchScope";
+
+export type SearchKind = SearchScopeKind;
 
 export type SearchHit = {
   id: string;
@@ -76,6 +78,7 @@ const PROJECT_STATUS: Record<string, string> = {
 };
 
 export const MIN_QUERY = 2;
+
 export const MAX_QUERY = 100;
 
 export function cleanQuery(raw: string | null | undefined): string {
@@ -391,7 +394,11 @@ async function searchRequirements(
  * A failure in one group is reported in `errors` and the other groups still
  * come back — a broken requirements query must not hide the contacts.
  */
-export async function globalSearch(rawQuery: string, perGroup: number): Promise<SearchResults> {
+export async function globalSearch(
+  rawQuery: string,
+  perGroup: number,
+  only?: SearchKind | null
+): Promise<SearchResults> {
   const query = cleanQuery(rawQuery);
   if (query.length < MIN_QUERY) return { query, groups: [], errors: [] };
 
@@ -406,27 +413,39 @@ export async function globalSearch(rawQuery: string, perGroup: number): Promise<
       return fallback;
     }
   };
+  // Scoped search (11/19/2026): `only` limits the result to one record type.
+  // Deals and requirements still need the company match, because a company
+  // name finds that company's deals — so entities run whenever either of
+  // those is in scope, but their group is only returned when asked for.
+  const want = (k: SearchKind) => !only || only === k;
+  const needEntities = want("entity") || want("project") || want("requirement");
 
   const [contacts, ent, properties] = await Promise.all([
-    safe("contact", searchContacts(query, limit), empty("contact")),
-    safe("entity", searchEntities(query, limit), { group: empty("entity"), matchedIds: [] as string[] }),
-    safe("property", searchProperties(query, limit), empty("property")),
+    want("contact") ? safe("contact", searchContacts(query, limit), empty("contact")) : empty("contact"),
+    needEntities
+      ? safe("entity", searchEntities(query, limit), { group: empty("entity"), matchedIds: [] as string[] })
+      : { group: empty("entity"), matchedIds: [] as string[] },
+    want("property") ? safe("property", searchProperties(query, limit), empty("property")) : empty("property"),
   ]);
   const [projects, requirements] = await Promise.all([
-    safe("project", searchProjects(query, limit, ent.matchedIds), empty("project")),
-    safe("requirement", searchRequirements(query, limit, ent.matchedIds), empty("requirement")),
+    want("project")
+      ? safe("project", searchProjects(query, limit, ent.matchedIds), empty("project"))
+      : empty("project"),
+    want("requirement")
+      ? safe("requirement", searchRequirements(query, limit, ent.matchedIds), empty("requirement"))
+      : empty("requirement"),
   ]);
 
   const byKind: Record<SearchKind, SearchGroup> = {
     contact: contacts,
-    entity: ent.group,
+    entity: want("entity") ? ent.group : empty("entity"),
     property: properties,
     project: projects,
     requirement: requirements,
   };
   return {
     query,
-    groups: ORDER.map((k) => byKind[k]).filter((g) => g.hits.length > 0),
+    groups: ORDER.filter(want).map((k) => byKind[k]).filter((g) => g.hits.length > 0),
     errors,
   };
 }

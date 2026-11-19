@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { SearchHit, SearchResults } from "@/lib/globalSearch";
+import { scopeForPath } from "@/lib/searchScope";
 import { searchAction } from "./searchActions";
 
 // Global search box in the top menu (10/10/2026).
@@ -13,6 +14,13 @@ import { searchAction } from "./searchActions";
 //   Enter                            open the highlighted result, or the
 //                                    full results page if none is highlighted
 //   Esc                              close
+//
+// Page scope (11/19/2026). On Projects, Contacts, Entities, Properties and
+// Requirements (and their detail pages) the box starts scoped to that page —
+// a blue "Projects" chip sits in the box. Click the chip (or Backspace in an
+// empty box) to flip to "All" and search everything; click again to flip
+// back. Leaving the page resets it. Pages with no list (Dashboard, Map,
+// Pipeline…) always search everything and show no chip.
 //
 // Matching happens server-side through the 017 matcher; this component only
 // debounces, drops out-of-order responses and handles the keyboard.
@@ -42,6 +50,11 @@ export function GlobalSearch() {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [failed, setFailed] = useState(false);
   const [active, setActive] = useState(-1);
+
+  // Scope: the page's default unless widened to All on this same page.
+  const pageScope = scopeForPath(pathname);
+  const [wideOn, setWideOn] = useState<string | null>(null);
+  const scope = pageScope && wideOn !== pathname ? pageScope : null;
 
   const flat: SearchHit[] = useMemo(
     () => (results ? results.groups.flatMap((g) => g.hits) : []),
@@ -85,7 +98,7 @@ export function GlobalSearch() {
   // Debounced search, run from the input's change handler. Each request
   // carries a sequence number so a slow early response can never overwrite a
   // later one.
-  const runSearch = (value: string) => {
+  const runSearch = (value: string, kind: string | null = scope?.kind ?? null) => {
     if (timer.current) clearTimeout(timer.current);
     const term = value.trim();
     const seq = ++reqSeq.current;
@@ -98,7 +111,7 @@ export function GlobalSearch() {
     setLoading(true);
     timer.current = setTimeout(async () => {
       try {
-        const r = await searchAction(term);
+        const r = await searchAction(term, kind);
         if (seq !== reqSeq.current) return;
         setResults(r);
         setFailed(false);
@@ -118,8 +131,20 @@ export function GlobalSearch() {
     if (term.length < MIN) return;
     setOpen(false);
     inputRef.current?.blur();
-    router.push(`/search?q=${encodeURIComponent(term)}`);
-  }, [q, router, setOpen]);
+    const inParam = scope ? `&in=${scope.kind}` : "";
+    router.push(`/search?q=${encodeURIComponent(term)}${inParam}`);
+  }, [q, router, setOpen, scope]);
+
+  // Flip between this page and everything, and re-run the current query.
+  const setScoped = (scoped: boolean) => {
+    if (!pageScope) return;
+    setWideOn(scoped ? null : pathname);
+    setResults(null);
+    setActive(-1);
+    setOpen(true);
+    runSearch(q, scoped ? pageScope.kind : null);
+    inputRef.current?.focus();
+  };
 
   const goHit = useCallback(
     (h: SearchHit) => {
@@ -132,7 +157,10 @@ export function GlobalSearch() {
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Escape") {
+    if (e.key === "Backspace" && q === "" && scope) {
+      e.preventDefault();
+      setScoped(false);
+    } else if (e.key === "Escape") {
       setOpen(false);
       inputRef.current?.blur();
     } else if (e.key === "ArrowDown") {
@@ -155,11 +183,11 @@ export function GlobalSearch() {
 
   return (
     <div ref={boxRef} className="relative ml-auto">
-      <div className="relative">
+      <div className="flex w-64 items-center gap-1.5 rounded-md border border-neutral-300 bg-white py-1 pl-2.5 pr-2 transition-[width] focus-within:w-96 focus-within:ring-2 focus-within:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-900">
         <svg
           aria-hidden="true"
           viewBox="0 0 20 20"
-          className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500 dark:text-neutral-400"
+          className="pointer-events-none h-4 w-4 shrink-0 text-neutral-500 dark:text-neutral-400"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
@@ -167,6 +195,27 @@ export function GlobalSearch() {
           <circle cx="8.5" cy="8.5" r="5.5" />
           <path d="M13 13l4 4" strokeLinecap="round" />
         </svg>
+        {pageScope && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setScoped(!scope)}
+            title={
+              scope
+                ? `Searching ${pageScope.label} only — click to search everything`
+                : `Searching everything — click to search ${pageScope.label} only`
+            }
+            aria-pressed={!!scope}
+            className={
+              "shrink-0 rounded px-1.5 py-0.5 text-[12px] font-medium leading-4 " +
+              (scope
+                ? "bg-blue-600 text-white hover:bg-blue-700"
+                : "border border-neutral-300 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800")
+            }
+          >
+            {scope ? `${pageScope.label} ✕` : "All ⇄"}
+          </button>
+        )}
         <input
           ref={inputRef}
           type="search"
@@ -178,17 +227,21 @@ export function GlobalSearch() {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Search"
-          aria-label="Search contacts, companies, properties, deals and requirements"
+          placeholder={scope ? `Search ${scope.label}` : "Search everything"}
+          aria-label={
+            scope
+              ? `Search ${scope.label}`
+              : "Search contacts, companies, properties, deals and requirements"
+          }
           role="combobox"
           aria-expanded={showPanel}
           aria-controls={listId}
           aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
           autoComplete="off"
           spellCheck={false}
-          className="w-56 focus:w-80 transition-[width] rounded-md border border-neutral-300 bg-white py-1.5 pl-8 pr-10 text-[15px] text-neutral-900 placeholder:text-neutral-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder:text-neutral-400"
+          className="min-w-0 flex-1 bg-transparent py-0.5 text-[15px] text-neutral-900 placeholder:text-neutral-500 focus:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-400"
         />
-        <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-neutral-300 px-1.5 text-[11px] leading-5 text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+        <kbd className="pointer-events-none shrink-0 rounded border border-neutral-300 px-1.5 text-[11px] leading-5 text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
           /
         </kbd>
       </div>
@@ -209,7 +262,7 @@ export function GlobalSearch() {
           )}
           {!failed && results && results.groups.length === 0 && !loading && (
             <p className="px-3 py-2 text-sm text-neutral-500 dark:text-neutral-400">
-              Nothing matches &ldquo;{term}&rdquo;.
+              Nothing {scope ? `in ${scope.label} ` : ""}matches &ldquo;{term}&rdquo;.
             </p>
           )}
           {results?.groups.map((g) => (
@@ -273,7 +326,20 @@ export function GlobalSearch() {
               onClick={goFull}
               className="mt-1 block w-full border-t border-neutral-200 px-3 py-2 text-left text-[13px] text-blue-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-blue-400 dark:hover:bg-neutral-800"
             >
-              All results for &ldquo;{term}&rdquo; →<span className="ml-2 text-neutral-500 dark:text-neutral-400">Enter</span>
+              All {scope ? `${scope.label} ` : ""}results for &ldquo;{term}&rdquo; →
+              <span className="ml-2 text-neutral-500 dark:text-neutral-400">Enter</span>
+            </button>
+          )}
+          {pageScope && !loading && results && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setScoped(!scope)}
+              className="block w-full border-t border-neutral-200 px-3 py-2 text-left text-[13px] text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              {scope
+                ? <>Search everything for &ldquo;{term}&rdquo; instead</>
+                : <>Only {pageScope.label}</>}
             </button>
           )}
         </div>

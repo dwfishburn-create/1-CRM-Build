@@ -1,23 +1,36 @@
 import Link from "next/link";
 import { globalSearch, cleanQuery, MIN_QUERY } from "@/lib/globalSearch";
+import { scopeForKind } from "@/lib/searchScope";
 
 export const dynamic = "force-dynamic";
 
 // Full results for the top-menu search box (10/10/2026). Enter in the box
 // lands here; up to 25 per type. Same matcher as the dropdown.
+// ?in=project (etc.) keeps the page scope from the box (11/19/2026).
 
 export default async function SearchPage(props: PageProps<"/search">) {
   const sp = await props.searchParams;
   const raw = Array.isArray(sp?.q) ? sp.q[0] : sp?.q;
   const q = cleanQuery(raw);
-  const results = q.length >= MIN_QUERY ? await globalSearch(q, 25) : null;
+  const rawIn = Array.isArray(sp?.in) ? sp.in[0] : sp?.in;
+  const scope = scopeForKind(rawIn);
+  const results = q.length >= MIN_QUERY ? await globalSearch(q, 25, scope?.kind ?? null) : null;
   const total = results ? results.groups.reduce((n, g) => n + g.total, 0) : 0;
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-1">Search</h1>
+      <h1 className="text-2xl font-semibold mb-1">Search{scope ? ` — ${scope.label}` : ""}</h1>
+      {scope && q && (
+        <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">
+          Showing {scope.label} only.{" "}
+          <Link href={`/search?q=${encodeURIComponent(q)}`} className="text-blue-700 underline dark:text-blue-400">
+            Search everything instead
+          </Link>
+        </p>
+      )}
 
       <form action="/search" className="mb-6 flex gap-2">
+        {scope && <input type="hidden" name="in" value={scope.kind} />}
         <input
           name="q"
           defaultValue={q}
